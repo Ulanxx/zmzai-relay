@@ -5,7 +5,7 @@ const schema = new Schema<RateLimitBucketRecord>({
   keyId: { type: String, required: true },
   windowStart: { type: Date, required: true },
   count: { type: Number, required: true, default: 0 },
-}, { strict: "throw", timestamps: true });
+}, { strict: "throw", timestamps: true, collection: "relayratelimitbuckets" });
 schema.index({ keyId: 1, windowStart: 1 }, { unique: true });
 schema.index({ windowStart: 1 }, { expireAfterSeconds: 7200 });
 export const RateLimitBucketModel =
