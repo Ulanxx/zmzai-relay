@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   const existing = await UsageModel.findOne({ callerKind: caller.kind, callerId: caller.id, requestId }).lean();
   if (existing) return error(existing.status === "processing" ? "REQUEST_IN_PROGRESS" : "REQUEST_ALREADY_PROCESSED", 409, "此 requestId 已处理，不能重复调用");
 
-  const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: parsed.data.model, upstreamModel: "", status: "processing" });
+  const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: parsed.data.model, upstreamModel: "pending", status: "processing" });
   const reserved = maximumChargeMicros(price);
   try { await reserveBalance({ usageId: usage._id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, amountMicros: reserved }); }
   catch (e) {
