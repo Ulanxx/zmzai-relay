@@ -93,8 +93,8 @@
 管理员加减余额、调用扣费和退款必须在 MongoDB transaction 中同时更新余额、写流水和更新关联记录。账本与成功调用都不提供删除接口。
 
 新增 `BalanceReservation`，用于调用前的临时预授权：关联用户、Token、请求和预留
-金额，状态为 `held`、`settled` 或 `released`。账户额外保存 `reservedMicros`；可用余额
-为 `balanceMicros - reservedMicros`。
+金额，状态为 `held`、`settled` 或 `released`，并含 `expiresAt` 租约。账户额外保存
+`reservedMicros`；可用余额为 `balanceMicros - reservedMicros`。
 
 ## API 网关结算流程
 
@@ -102,13 +102,25 @@
 2. 读取用户账户及公开模型价格。每个模型由 Admin 配置 `maxInputTokens` 与 `maxOutputTokens`；请求的消息 UTF-8 总字节数不得超过 128 KiB，`max_tokens` 不得超过该模型的 `maxOutputTokens`。
 3. 按模型完整 `maxInputTokens + maxOutputTokens` 计算单次可计费最高售价，作为预授权金额；不以字符或 tokenizer 估算替代该硬上限。金额计算对输入、输出分别向上取整：`ceil(tokens * pricePer1kMicros / 1000)`。
 4. 在 transaction 中创建 `UsageRecord`（状态 `processing`）和 `BalanceReservation`，并增加账户 `reservedMicros`。可用余额或 Token 当月可用额度不足完整最高售价时，返回 `402 INSUFFICIENT_BALANCE`，不访问上游。
-5. 取支持模型且已启用的渠道，按优先级升序依次尝试。主 `UsageRecord` 在全部候选结束前保持 `processing`。每次尝试先创建 `ChannelAttempt`，结束时写入该次状态、延迟、错误摘要和成本状态。每个渠道将公开模型名映射为上游模型名。
+5. 取支持模型且已启用的渠道，按优先级升序依次尝试。整个请求总上游时间不得超过 5 分钟，单个渠道尝试不得超过 120 秒。主 `UsageRecord` 在全部候选结束前保持 `processing`。每次尝试先创建 `ChannelAttempt`，结束时写入该次状态、延迟、错误摘要和成本状态。每个渠道将公开模型名映射为上游模型名。
 6. 上游成功后取得输入与输出 usage，基于调用时价目计算 `chargedMicros`、`costMicros` 与 `grossProfitMicros`。
 7. 在 transaction 中将预留转为实际扣费：减少账户 `balanceMicros` 与 `reservedMicros`，将预留标记 `settled`，写 `BalanceLedger` 和结算快照，并更新 Token 的调用/token/消费统计。未使用的预留金额随事务释放。
-8. 上游失败时，释放全部预留，写失败调用与 `ChannelAttempt`；然后继续尝试下一个候选渠道，全部失败时返回 `502 UPSTREAM_ERROR`。
+8. 单个上游失败时只更新对应的 `ChannelAttempt`，预留继续持有并尝试下一个渠道；全部候选失败时才释放全部预留，将主 `UsageRecord` 标记 `failed`，并返回 `502 UPSTREAM_ERROR`。
 9. 流式调用仅在上游结束并带 usage 时结算。如上游未提供 usage，则释放全部预留，记录 `unsettled` 状态和原因，供管理员核查。系统不得猜测 token 数并收费。
 
 预留和结算均使用 transaction 加余额与额度条件更新，任何并发调用均不得令账户余额或 Token 可用额度小于零。
+
+### 预留恢复
+
+创建预留时设定 `expiresAt = createdAt + 10 分钟`，覆盖 5 分钟总上游时限和恢复缓冲。
+新增受 `RELAY_INTERNAL_CRON_SECRET` 保护的内部清算端点，由服务器 cron 每分钟调用。
+该端点为过期且仍 `held` 的预留在 transaction 中释放金额，主 `UsageRecord` 标记
+`unsettled`，并写入一条 `ChannelAttempt` 成本未知的审计说明。普通网关请求和账户
+读取也会在操作所属用户前执行同样的过期清理，以处理 cron 短暂中断。
+
+恢复后的幂等键不再返回 `REQUEST_IN_PROGRESS`；它属于终态 `unsettled`，因此返回
+`409 REQUEST_ALREADY_PROCESSED`，不会重复上游调用或重复收费。Admin 可从待处理
+列表核查不确定上游成本，但不得把它计入已确认毛利。
 
 ### 请求幂等性
 
