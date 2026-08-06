@@ -2,177 +2,74 @@
 
 import { useState } from "react";
 
-interface ModelMapping {
-  public: string;
-  upstream: string;
-}
-
+interface ModelMapping { public: string; upstream: string; }
 interface Channel {
-  _id: string;
-  name: string;
-  baseUrl: string;
-  protocol: string;
-  models: ModelMapping[];
-  priority: number;
-  inputCostPer1kTokensMicros: number | null;
-  outputCostPer1kTokensMicros: number | null;
-  enabled: boolean;
-  timeoutMs: number;
+  _id: string; name: string; baseUrl: string; protocol: string; models: ModelMapping[]; priority: number;
+  inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null; enabled: boolean; timeoutMs: number;
+}
+interface ChannelForm {
+  name: string; baseUrl: string; apiKey: string; modelsText: string; priority: number; inputCost: number; outputCost: number; timeoutMs: number; enabled: boolean; costsPending: boolean;
 }
 
-export function ChannelAdminPanel({
-  initialChannels,
-}: {
-  initialChannels: Channel[];
-}) {
-  const [channels, setChannels] = useState<Channel[]>(initialChannels);
-  const [form, setForm] = useState({
-    name: "",
-    baseUrl: "",
-    apiKey: "",
-    modelsText: "gpt-5.6-sol=gpt-5.6-sol, gpt-5.6-terra=gpt-5.6-terra, gpt-5.6-luna=gpt-5.6-luna",
-    priority: 10,
-    inputCostPer1kTokensMicros: 0,
-    outputCostPer1kTokensMicros: 0,
+const defaultMappings = "gpt-5.6-sol=gpt-5.6-sol, gpt-5.6-terra=gpt-5.6-terra, gpt-5.6-luna=gpt-5.6-luna";
+const emptyForm = (): ChannelForm => ({ name: "", baseUrl: "", apiKey: "", modelsText: defaultMappings, priority: 10, inputCost: 0, outputCost: 0, timeoutMs: 60000, enabled: true, costsPending: true });
+const formForChannel = (channel: Channel): ChannelForm => ({ name: channel.name, baseUrl: channel.baseUrl, apiKey: "", modelsText: channel.models.map((mapping) => `${mapping.public}=${mapping.upstream}`).join(", "), priority: channel.priority, inputCost: channel.inputCostPer1kTokensMicros ?? 0, outputCost: channel.outputCostPer1kTokensMicros ?? 0, timeoutMs: channel.timeoutMs, enabled: channel.enabled, costsPending: channel.inputCostPer1kTokensMicros === null });
+
+function toPayload(form: ChannelForm, requireKey: boolean) {
+  const models = form.modelsText.split(",").map((item) => item.trim()).filter(Boolean).map((pair) => {
+    const [publicModel, upstream] = pair.split("=").map((item) => item.trim());
+    return { public: publicModel, upstream: upstream || publicModel };
   });
+  return {
+    name: form.name, baseUrl: form.baseUrl, ...(requireKey ? { apiKey: form.apiKey } : { apiKey: form.apiKey.trim() }), models,
+    priority: form.priority, inputCostPer1kTokensMicros: form.costsPending ? null : form.inputCost,
+    outputCostPer1kTokensMicros: form.costsPending ? null : form.outputCost, enabled: form.enabled, timeoutMs: form.timeoutMs,
+  };
+}
+
+export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channel[] }) {
+  const [channels, setChannels] = useState(initialChannels);
+  const [form, setForm] = useState<ChannelForm>(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const editing = channels.find((channel) => channel._id === editingId) ?? null;
 
-  async function addChannel(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const models = form.modelsText
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((pair) => {
-        const [pub, up] = pair.split("=").map((x) => x.trim());
-        return { public: pub, upstream: up || pub };
-      });
-    const res = await fetch("/api/admin/channels", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: form.name,
-        baseUrl: form.baseUrl,
-        apiKey: form.apiKey,
-        models,
-        priority: form.priority,
-        inputCostPer1kTokensMicros: form.inputCostPer1kTokensMicros,
-        outputCostPer1kTokensMicros: form.outputCostPer1kTokensMicros,
-      }),
+  function beginEdit(channel: Channel) { setEditingId(channel._id); setForm(formForChannel(channel)); setError(null); }
+  function cancelEdit() { setEditingId(null); setForm(emptyForm()); setError(null); }
+  async function save(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError(null);
+    const requireKey = !editingId;
+    if (requireKey && !form.apiKey.trim()) { setBusy(false); setError("请填写上游 Key"); return; }
+    const response = await fetch(editingId ? `/api/admin/channels/${editingId}` : "/api/admin/channels", {
+      method: editingId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toPayload(form, requireKey)),
     });
-    setBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setError(j.error ?? "添加失败");
-      return;
-    }
-    const j = await res.json();
-    setChannels((prev) => [...prev, j.channel]);
-    setForm({ name: "", baseUrl: "", apiKey: "", modelsText: "gpt-5.6-sol=gpt-5.6-sol, gpt-5.6-terra=gpt-5.6-terra, gpt-5.6-luna=gpt-5.6-luna", priority: 10, inputCostPer1kTokensMicros: 0, outputCostPer1kTokensMicros: 0 });
+    const json = await response.json().catch(() => ({})); setBusy(false);
+    if (!response.ok) { setError(json.error ?? "保存失败"); return; }
+    setChannels((previous) => (editingId ? previous.map((channel) => channel._id === editingId ? json.channel : channel) : [...previous, json.channel]).sort((a, b) => a.priority - b.priority));
+    cancelEdit();
   }
-
   async function testChannel(id: string) {
-    setTestResult((prev) => ({ ...prev, [id]: "测试中…" }));
-    const res = await fetch(`/api/admin/channels/${id}/test`, { method: "POST" });
-    const j = await res.json().catch(() => ({}));
-    setTestResult((prev) => ({
-      ...prev,
-      [id]: j.ok ? `✓ 通 (${j.latencyMs}ms)` : `✗ ${j.status || j.error}`,
-    }));
+    setTestResult((previous) => ({ ...previous, [id]: "测试中..." }));
+    const response = await fetch(`/api/admin/channels/${id}/test`, { method: "POST" }); const json = await response.json().catch(() => ({}));
+    setTestResult((previous) => ({ ...previous, [id]: json.ok ? `已连通 (${json.latencyMs}ms${json.mode === "completion" ? "，最小调用" : ""})` : `失败：${json.status || json.error}` }));
   }
+  const update = <K extends keyof ChannelForm>(key: K, value: ChannelForm[K]) => setForm((previous) => ({ ...previous, [key]: value }));
 
-  return (
-    <div className="grid gap-12 lg:grid-cols-[1fr_1.1fr]">
-      {/* 渠道列表 */}
-      <section className="flex flex-col gap-4">
-        <h2 className="headline text-xl">已配置渠道（{channels.length}）</h2>
-        {channels.length === 0 ? (
-          <p className="text-sm text-muted">还没有渠道。右侧添加第一个便宜中转站。</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-line border-y border-line">
-            {channels.map((c) => (
-              <li key={c._id} className="flex flex-col gap-2 py-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div className="flex items-baseline gap-3">
-                    <span className="font-bold text-ink">{c.name}</span>
-                    <span className="font-mono text-[0.625rem] uppercase tracking-widest text-muted">
-                      P{c.priority}
-                    </span>
-                    <span className={`font-mono text-[0.625rem] uppercase tracking-widest ${c.enabled ? "text-success" : "text-muted"}`}>
-                      {c.enabled ? "启用" : "停用"}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => testChannel(c._id)}
-                    className="font-mono text-xs text-accent-readable underline underline-offset-2 hover:text-accent"
-                  >
-                    测试
-                  </button>
-                </div>
-                <p className="font-mono text-xs text-muted">{c.baseUrl}</p>
-                <p className="font-mono text-xs text-ink/60">
-                  {c.models.map((m) => `${m.public}→${m.upstream}`).join(" · ")}
-                </p>
-                {testResult[c._id] ? (
-                  <p className="font-mono text-xs text-accent-readable">{testResult[c._id]}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* 添加表单 */}
-      <section className="flex flex-col gap-4">
-        <h2 className="headline text-xl">添加渠道</h2>
-        <form onSubmit={addChannel} className="flex flex-col gap-4 border border-line bg-surface p-6">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">名称</span>
-            <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="border border-line bg-paper px-3 py-2" placeholder="cheap-a" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">Base URL</span>
-            <input required type="url" value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-              className="border border-line bg-paper px-3 py-2" placeholder="https://api.cheap-a.com/v1" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">上游 Key</span>
-            <input required value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-              className="border border-line bg-paper px-3 py-2" placeholder="sk-..." />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">模型映射（逗号分隔，对外名=上游名）</span>
-            <input value={form.modelsText} onChange={(e) => setForm({ ...form, modelsText: e.target.value })}
-              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-5.6-terra=gpt-5.6-terra" />
-          </label>
-          <div className="grid grid-cols-3 gap-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">优先级（小=先试）</span>
-              <input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
-                className="border border-line bg-paper px-3 py-2" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">输入成本（微美元/1k）</span>
-              <input type="number" value={form.inputCostPer1kTokensMicros} onChange={(e) => setForm({ ...form, inputCostPer1kTokensMicros: Number(e.target.value) })}
-                className="border border-line bg-paper px-3 py-2" />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">输出成本（微美元/1k）</span>
-              <input type="number" value={form.outputCostPer1kTokensMicros} onChange={(e) => setForm({ ...form, outputCostPer1kTokensMicros: Number(e.target.value) })}
-                className="border border-line bg-paper px-3 py-2" />
-            </label>
-          </div>
-          {error ? <p className="text-sm text-red-700">{error}</p> : null}
-          <button type="submit" disabled={busy} className="btn-primary self-start disabled:opacity-50">
-            {busy ? "添加中…" : "添加渠道"}
-          </button>
-        </form>
-      </section>
-    </div>
-  );
+  return <div className="grid gap-12 xl:grid-cols-[1fr_1.05fr]">
+    <section className="flex flex-col gap-4"><h2 className="headline text-xl">已配置渠道（{channels.length}）</h2>
+      {channels.length === 0 ? <p className="text-sm text-muted">还没有渠道。右侧添加第一个上游。</p> : <ul className="divide-y divide-line border-y border-line">{channels.map((channel) => <li key={channel._id} className="py-4"><div className="flex flex-wrap items-baseline justify-between gap-3"><div className="flex items-baseline gap-3"><span className="font-semibold">{channel.name}</span><span className="font-mono text-xs text-muted">P{channel.priority}</span><span className={`font-mono text-xs ${channel.enabled ? "text-success" : "text-muted"}`}>{channel.enabled ? "启用" : "停用"}</span></div><div className="flex gap-3 font-mono text-xs"><button type="button" onClick={() => beginEdit(channel)} className="text-accent-readable underline">编辑</button><button type="button" onClick={() => testChannel(channel._id)} className="text-accent-readable underline">测试</button></div></div><p className="mt-2 font-mono text-xs text-muted">{channel.baseUrl}</p><p className="mt-1 font-mono text-xs text-ink/60">{channel.models.map((mapping) => `${mapping.public}->${mapping.upstream}`).join(" · ")}</p><p className="mt-1 text-xs text-muted">{channel.inputCostPer1kTokensMicros === null ? "成本待配置" : `成本 ${channel.inputCostPer1kTokensMicros}/${channel.outputCostPer1kTokensMicros} 微美元/1k`}</p>{testResult[channel._id] ? <p className="mt-2 font-mono text-xs text-accent-readable">{testResult[channel._id]}</p> : null}</li>)}</ul>}
+    </section>
+    <section className="border border-line bg-surface p-6"><div className="flex items-baseline justify-between gap-3"><h2 className="headline text-xl">{editing ? `编辑 ${editing.name}` : "添加渠道"}</h2>{editing ? <button type="button" onClick={cancelEdit} className="font-mono text-xs text-muted underline">取消</button> : null}</div><form onSubmit={save} className="mt-5 flex flex-col gap-4">
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">名称</span><input required value={form.name} onChange={(event) => update("name", event.target.value)} className="border border-line bg-paper px-3 py-2" /></label>
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">Base URL</span><input required type="url" value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="https://api.example.com/v1" /></label>
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">上游 Key{editing ? "（留空则保持不变）" : ""}</span><input required={!editing} value={form.apiKey} onChange={(event) => update("apiKey", event.target.value)} className="border border-line bg-paper px-3 py-2" placeholder={editing ? "不回显；仅填写时替换" : "sk-..."} /></label>
+      <label className="flex flex-col gap-1 text-sm"><span className="text-muted">模型映射（对外名=上游名，逗号分隔）</span><input required value={form.modelsText} onChange={(event) => update("modelsText", event.target.value)} className="border border-line bg-paper px-3 py-2 font-mono text-xs" /></label>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted">优先级（小=先试）</span><input type="number" min="0" value={form.priority} onChange={(event) => update("priority", Number(event.target.value))} className="border border-line bg-paper px-3 py-2" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted">超时（毫秒）</span><input type="number" min="1000" max="300000" value={form.timeoutMs} onChange={(event) => update("timeoutMs", Number(event.target.value))} className="border border-line bg-paper px-3 py-2" /></label></div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={(event) => update("enabled", event.target.checked)} /> 启用此渠道</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.costsPending} onChange={(event) => update("costsPending", event.target.checked)} /> 成本待配置</label>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted">输入成本（微美元/1k）</span><input disabled={form.costsPending} type="number" min="0" value={form.inputCost} onChange={(event) => update("inputCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted">输出成本（微美元/1k）</span><input disabled={form.costsPending} type="number" min="0" value={form.outputCost} onChange={(event) => update("outputCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label></div>
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}<button disabled={busy} className="btn-primary self-start disabled:opacity-50">{busy ? "保存中..." : editing ? "保存修改" : "添加渠道"}</button>
+    </form></section>
+  </div>;
 }

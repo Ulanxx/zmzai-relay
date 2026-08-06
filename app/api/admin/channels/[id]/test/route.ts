@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { AdminRequiredError, requireAdmin } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { safeUpstreamFetch } from "@/providers/network/safe-upstream-fetch";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ function err(code: string, status: number, message: string) {
   return NextResponse.json({ error: message, code }, { status });
 }
 
-/** 测试渠道：实际调一次该渠道的 /models 看通不通。 */
+/** 优先 /models；不支持该端点的上游用最小 completion 验证连通性。 */
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -31,14 +32,27 @@ export async function POST(
 
   const startedAt = Date.now();
   try {
-    const res = await fetch(`${channel.baseUrl.replace(/\/$/, "")}/models`, {
+    const baseUrl = channel.baseUrl.replace(/\/$/, "");
+    const res = await safeUpstreamFetch(`${baseUrl}/models`, {
       headers: { Authorization: `Bearer ${channel.apiKey}` },
       signal: AbortSignal.timeout(10000),
     });
+    if (![404, 405, 501].includes(res.status)) {
+      return NextResponse.json({ ok: res.ok, status: res.status, latencyMs: Date.now() - startedAt, mode: "models" });
+    }
+    const model = channel.models[0]?.upstream;
+    if (!model) return err("NO_MODEL", 400, "渠道没有模型映射");
+    const completion = await safeUpstreamFetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+      signal: AbortSignal.timeout(20000),
+    });
     return NextResponse.json({
-      ok: res.ok,
-      status: res.status,
+      ok: completion.ok,
+      status: completion.status,
       latencyMs: Date.now() - startedAt,
+      mode: "completion",
     });
   } catch (e) {
     return NextResponse.json({

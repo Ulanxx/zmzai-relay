@@ -1,25 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-
 import { AdminRequiredError, requireAdmin } from "@/providers/auth/session";
+import { channelCreateSchema } from "@/providers/channels/schema";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { validateUpstreamUrl } from "@/providers/network/safe-upstream-fetch";
 
 export const dynamic = "force-dynamic";
-
-const channelSchema = z.object({
-  name: z.string().min(1).max(80),
-  baseUrl: z.string().url().max(500),
-  apiKey: z.string().min(1),
-  models: z
-    .array(z.object({ public: z.string().min(1), upstream: z.string().min(1) }))
-    .min(1),
-  priority: z.coerce.number().int().min(0).default(10),
-  inputCostPer1kTokensMicros: z.coerce.number().min(0).default(0),
-  outputCostPer1kTokensMicros: z.coerce.number().min(0).default(0),
-  enabled: z.boolean().optional().default(true),
-  timeoutMs: z.coerce.number().int().min(1000).max(300000).default(60000),
-});
 
 function err(code: string, status: number, message: string) {
   return NextResponse.json({ error: message, code }, { status });
@@ -47,9 +33,15 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  const parsed = channelSchema.safeParse(body);
+  const parsed = channelCreateSchema.safeParse(body);
   if (!parsed.success) {
     return err("INVALID_BODY", 400, "渠道配置格式不正确");
+  }
+
+  try {
+    await validateUpstreamUrl(parsed.data.baseUrl);
+  } catch {
+    return err("INVALID_BASE_URL", 400, "渠道地址必须是可解析的 HTTPS 公网地址");
   }
 
   await connectMongo();

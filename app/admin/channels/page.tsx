@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Wordmark } from "@/components/wordmark";
+import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
@@ -21,11 +20,7 @@ export default async function AdminChannelsPage() {
     redirect(`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/admin/channels")}`);
   }
   if (user.role !== "admin") {
-    return (
-      <main className="page-shell flex min-h-dvh flex-col items-center justify-center gap-6 py-10">
-        <p className="text-lg text-ink/70">需要管理员权限</p>
-      </main>
-    );
+    redirect("/dashboard");
   }
 
   await connectMongo();
@@ -43,29 +38,5 @@ export default async function AdminChannelsPage() {
     timeoutMs: c.timeoutMs,
   }));
 
-  return (
-    <main className="page-shell flex min-h-dvh flex-col py-10">
-      <header className="flex items-center justify-between border-b-2 border-rule pb-5">
-        <Wordmark />
-        <nav className="flex items-center gap-5 font-mono text-xs text-muted">
-          <Link href="/admin/keys" className="transition-colors hover:text-accent">Key 管理</Link>
-          <Link href="/dashboard" className="transition-colors hover:text-accent">用量</Link>
-          <span>m.zmzai.cloud · admin</span>
-        </nav>
-      </header>
-
-      <section className="flex flex-1 flex-col gap-10 py-12">
-        <div className="flex flex-col gap-3">
-          <p className="eyebrow">中转驿 · 渠道配置</p>
-          <h1 className="headline text-4xl">上游渠道</h1>
-          <p className="max-w-2xl text-ink/70">
-            配置第三方便宜中转站。每个渠道 = 一个上游（base_url + key + 模型映射）。
-            便宜的给低 priority 排前面，官方 API 做兜底。
-          </p>
-        </div>
-
-        <ChannelAdminPanel initialChannels={safe} />
-      </section>
-    </main>
-  );
+  return <RelayShell role="admin" userName={user.name}><p className="eyebrow">中转驿 · 上游配置</p><h1 className="headline mt-2 text-4xl">渠道路由</h1><p className="mt-3 max-w-2xl text-ink/70">Token 不绑定渠道；系统按模型映射、启用状态与优先级转发，并在失败时尝试下一个上游。</p><div className="mt-8"><ChannelAdminPanel initialChannels={safe} /></div></RelayShell>;
 }
