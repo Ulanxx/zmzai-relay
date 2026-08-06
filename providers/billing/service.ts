@@ -4,6 +4,7 @@ import { ApiKeyModel } from "@/providers/database/mongodb/models/apikey";
 import { BalanceAccountModel, BalanceLedgerModel } from "@/providers/database/mongodb/models/balance";
 import { BalanceReservationModel } from "@/providers/database/mongodb/models/reservation";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
+import { currentPeriod } from "./period";
 
 const RESERVATION_MS = 10 * 60 * 1000;
 
@@ -13,11 +14,7 @@ export class BillingError extends Error {
   }
 }
 
-export function currentPeriod(now = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit" }).formatToParts(now);
-  const value = (type: "year" | "month") => parts.find((part) => part.type === type)?.value;
-  return `${value("year")}-${value("month")}`;
-}
+export { currentPeriod } from "./period";
 
 export function chargeMicros(tokens: number, pricePer1kMicros: number): number {
   return Math.ceil((tokens * pricePer1kMicros) / 1000);

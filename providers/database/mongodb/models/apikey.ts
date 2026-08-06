@@ -7,6 +7,8 @@ import {
   type Types,
 } from "mongoose";
 
+import { currentPeriod } from "@/providers/billing/period";
+
 /** 中转驿发给调用方的 API key。 */
 export interface ApiKeyRecord {
   keyHash: string;             // sha256，select:false，唯一索引
@@ -43,7 +45,7 @@ const apiKeySchema = new Schema<ApiKeyRecord>(
     monthlySpendLimitMicros: { type: Number, required: true, default: 0, min: 0 },
     monthlySpendUsedMicros: { type: Number, required: true, default: 0, min: 0 },
     monthlySpendReservedMicros: { type: Number, required: true, default: 0, min: 0 },
-    monthlySpendPeriod: { type: String, required: true, default: "" },
+    monthlySpendPeriod: { type: String, required: true, default: currentPeriod },
     lastUsedAt: { type: Date, default: null },
   },
   { strict: "throw", timestamps: true },
