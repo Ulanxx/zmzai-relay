@@ -106,9 +106,16 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
     try { for (;;) { const next = await reader.read(); if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value); }
-      const match = [...raw.matchAll(/"usage"\s*:\s*(\{[^}]*\})/g)].at(-1);
-      if (!match) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
-      else { const value = JSON.parse(match[1]); const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost); await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
+      raw += decoder.decode();
+      let value: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+      for (const line of raw.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        try { const event = JSON.parse(payload); if (event.usage) value = event.usage; } catch { /* Ignore malformed non-usage events already sent to the client. */ }
+      }
+      if (!value) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
+      else { const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost); await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
       controller.close();
     } catch (e) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: e instanceof Error ? e.message : "stream failed" } }); controller.error(e); }
   }});
