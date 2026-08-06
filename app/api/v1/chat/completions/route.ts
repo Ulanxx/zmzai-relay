@@ -3,265 +3,114 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getServerEnv } from "@/config/env";
-import { addApiKeyUsage, resolveApiKey } from "@/providers/auth/apikey";
+import { resolveApiKey } from "@/providers/auth/apikey";
 import { getCurrentUser } from "@/providers/auth/session";
+import { chargeMicros, maximumChargeMicros, reserveBalance, releaseReservation, settleReservation, BillingError } from "@/providers/billing/service";
 import { connectMongo } from "@/providers/database/mongodb/connection";
+import { ChannelAttemptModel } from "@/providers/database/mongodb/models/channel-attempt";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { ModelPriceModel } from "@/providers/database/mongodb/models/model-price";
+import { RateLimitBucketModel } from "@/providers/database/mongodb/models/rate-limit";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
 
 export const dynamic = "force-dynamic";
 
-const chatSchema = z
-  .object({
-    model: z.string().min(1),
-    messages: z
-      .array(z.object({ role: z.string(), content: z.string() }))
-      .min(1),
-    stream: z.boolean().optional().default(false),
-    requestId: z.string().max(128).optional(),
-  })
-  .strict()
-  .passthrough(); // 透传 temperature/max_tokens 等额外字段给上游
+const chatSchema = z.object({
+  model: z.string().min(1),
+  messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1),
+  stream: z.boolean().optional().default(false),
+  max_tokens: z.number().int().positive().optional(),
+  requestId: z.string().max(128).optional(),
+}).strict().passthrough();
 
-function err(code: string, status: number, message: string) {
-  return NextResponse.json({ error: message, code }, { status });
-}
+type Caller = { kind: "apikey" | "session"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null };
+function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
 
-/** 调用方身份：API key（优先）或 muzhi session（兜底）。 */
-interface Caller {
-  kind: "apikey" | "session";
-  id: string;          // apiKeyId 或 userId
-  userId: string;      // 用于 Usage 归属（apikey 时记 key 归属 userId 或 key id）
-  label: string;
-  allowedModels: string[] | null; // null=不限
-}
-
-async function resolveCaller(req: NextRequest): Promise<Caller | null> {
+async function callerFor(req: NextRequest): Promise<Caller | null> {
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) {
-    const key = auth.slice(7).trim();
-    const k = await resolveApiKey(key);
-    if (!k) return null;
-    return {
-      kind: "apikey",
-      id: k.id,
-      userId: k.id, // Usage 归属记 key id（v1 简化）
-      label: k.name,
-      allowedModels: k.allowedModels.length > 0 ? k.allowedModels : null,
-    };
+    const key = await resolveApiKey(auth.slice(7).trim());
+    return key ? { kind: "apikey", id: key.id, userId: key.userId, label: key.name, allowedModels: key.allowedModels.length ? key.allowedModels : null, rpm: key.rateLimitPerMinute } : null;
   }
   const user = await getCurrentUser();
-  if (!user) return null;
-  return {
-    kind: "session",
-    id: user.id,
-    userId: user.id,
-    label: user.name,
-    allowedModels: null,
-  };
+  return user ? { kind: "session", id: user.id, userId: user.id, label: user.name, allowedModels: null, rpm: null } : null;
+}
+
+async function consumeRateLimit(keyId: string, limit: number): Promise<boolean> {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  const bucket = await RateLimitBucketModel.findOneAndUpdate(
+    { keyId, windowStart: now }, { $inc: { count: 1 }, $setOnInsert: { keyId, windowStart: now } }, { upsert: true, new: true },
+  );
+  return bucket.count <= limit;
 }
 
 export async function POST(req: NextRequest) {
-  const caller = await resolveCaller(req);
-  if (!caller) {
-    return err("UNAUTHENTICATED", 401, "需要有效的 API key（Authorization: Bearer zrk_...）或 muzhi 登录");
-  }
-
+  const caller = await callerFor(req);
+  if (!caller) return error("UNAUTHENTICATED", 401, "需要有效的 API Token 或登录会话");
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
-  if (!parsed.success) {
-    return err("INVALID_BODY", 400, "请求体格式不正确");
-  }
-  const { model, stream } = parsed.data;
-  const requestId = parsed.data.requestId ?? randomUUID();
-
-  if (caller.allowedModels && !caller.allowedModels.includes(model)) {
-    return err("MODEL_NOT_ALLOWED", 403, `该 key 不允许调用模型 ${model}`);
-  }
+  if (!parsed.success) return error("INVALID_BODY", 400, "请求体格式不正确");
+  if (caller.allowedModels && !caller.allowedModels.includes(parsed.data.model)) return error("MODEL_NOT_ALLOWED", 403, "此 Token 不允许调用该模型");
+  if (caller.kind === "apikey" && !(await consumeRateLimit(caller.id, caller.rpm ?? 60))) return error("RATE_LIMITED", 429, "此 Token 已达到每分钟调用上限");
 
   await connectMongo();
+  const price = await ModelPriceModel.findOne({ model: parsed.data.model, enabled: true }).lean();
+  if (!price) return error("MODEL_NOT_PRICED", 400, "该模型尚未开放或未配置价格");
+  if ((parsed.data.max_tokens ?? 4096) > price.maxOutputTokens) return error("MAX_TOKENS_EXCEEDED", 400, "max_tokens 超过该模型允许的上限");
+  if (Buffer.byteLength(JSON.stringify(parsed.data.messages), "utf8") > 128 * 1024) return error("PROMPT_TOO_LARGE", 400, "消息内容超过 128 KiB 限制");
 
-  // 选渠道：enabled + 支持该模型，按 priority 升序（便宜的排前）
-  const channels = await ChannelModel.find({
-    enabled: true,
-    "models.public": model,
-  })
-    .select("+apiKey")
-    .sort({ priority: 1 })
-    .lean();
+  const requestId = parsed.data.requestId ?? randomUUID();
+  const existing = await UsageModel.findOne({ callerKind: caller.kind, callerId: caller.id, requestId }).lean();
+  if (existing) return error(existing.status === "processing" ? "REQUEST_IN_PROGRESS" : "REQUEST_ALREADY_PROCESSED", 409, "此 requestId 已处理，不能重复调用");
 
-  if (channels.length === 0) {
-    return err("MODEL_UNKNOWN", 400, `没有任何渠道支持模型 ${model}`);
+  const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: parsed.data.model, upstreamModel: "", status: "processing" });
+  const reserved = maximumChargeMicros(price);
+  try { await reserveBalance({ usageId: usage._id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, amountMicros: reserved }); }
+  catch (e) {
+    await UsageModel.deleteOne({ _id: usage._id });
+    if (e instanceof BillingError) return error(e.code, 402, e.message);
+    throw e;
   }
 
-  const channel = channels[0];
-  const mapping = channel.models.find((m) => m.public === model);
-  const upstreamModel = mapping?.upstream ?? model;
+  const channels = await ChannelModel.find({ enabled: true, "models.public": parsed.data.model }).select("+apiKey").sort({ priority: 1 }).lean();
+  if (!channels.length) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "failed", lastError: "no eligible channel" } }); return error("NO_CHANNEL", 503, "没有可用上游渠道"); }
 
-  const startedAt = Date.now();
-  const env = getServerEnv();
-
-  // 构造上游请求（openai-compat：透传 body，换 base_url/key/model）
-  const upstreamUrl = `${channel.baseUrl.replace(/\/$/, "")}/chat/completions`;
-  const upstreamBody = JSON.stringify({
-    ...parsed.data,
-    model: upstreamModel,
-    requestId: undefined,
-  });
-
-  let upstream: globalThis.Response;
-  try {
-    upstream = await fetch(upstreamUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${channel.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: upstreamBody,
-      signal: AbortSignal.timeout(channel.timeoutMs ?? env.RELAY_DEFAULT_UPSTREAM_TIMEOUT_MS),
-    });
-  } catch (e) {
-    await recordUsage({
-      requestId, userId: caller.userId, channelId: String(channel._id),
-      model, upstreamModel, status: "failed",
-      latencyMs: Date.now() - startedAt,
-      lastError: e instanceof Error ? e.message : "upstream connect failed",
-    });
-    return err("UPSTREAM_ERROR", 502, "上游渠道连接失败");
+  for (const channel of channels) {
+    const upstreamModel = channel.models.find((item) => item.public === parsed.data.model)?.upstream ?? parsed.data.model;
+    const started = Date.now();
+    try {
+      const upstream = await fetch(`${channel.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, model: upstreamModel, requestId: undefined, stream_options: parsed.data.stream ? { include_usage: true } : undefined }), signal: AbortSignal.timeout(Math.min(channel.timeoutMs, 120_000)) });
+      if (!upstream.ok) {
+        const details = (await upstream.text().catch(() => "")).slice(0, 500);
+        await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: `HTTP ${upstream.status}: ${details}`, costStatus: "not_charged" });
+        continue;
+      }
+      if (parsed.data.stream && upstream.body) return streamResponse(upstream.body, usage._id, channel, upstreamModel, price, started);
+      const json = await upstream.json().catch(() => null);
+      const tokens = json?.usage;
+      if (!tokens) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "unsettled", lastError: "upstream omitted usage" } }); return error("USAGE_UNAVAILABLE", 502, "上游未返回用量，已取消扣费"); }
+      const prompt = tokens.prompt_tokens ?? 0; const completion = tokens.completion_tokens ?? 0;
+      const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros);
+      const cost = chargeMicros(prompt, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0);
+      await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" });
+      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros });
+      return NextResponse.json(json);
+    } catch (e) { await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 500) : "network failure", costStatus: "unknown" }); }
   }
-
-  if (!upstream.ok) {
-    const text = await upstream.text().catch(() => "");
-    await recordUsage({
-      requestId, userId: caller.userId, channelId: String(channel._id),
-      model, upstreamModel, status: "failed",
-      latencyMs: Date.now() - startedAt,
-      lastError: `upstream ${upstream.status}: ${text.slice(0, 300)}`,
-    });
-    return err("UPSTREAM_ERROR", 502, `上游渠道返回 ${upstream.status}`);
-  }
-
-  // 流式：透传 SSE，流结束后记账
-  if (stream && upstream.body) {
-    const channelId = String(channel._id);
-    const costPer1k = channel.costPer1kTokensMicros ?? 0;
-    const streamOut = new ReadableStream({
-      async start(controller) {
-        const reader = upstream.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let usage = { prompt: 0, completion: 0, total: 0 };
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-            controller.enqueue(value);
-            usage = extractUsage(buffer) ?? usage;
-          }
-          controller.close();
-          await recordUsage({
-            requestId, userId: caller.userId, channelId, model, upstreamModel,
-            status: "completed", latencyMs: Date.now() - startedAt,
-            promptTokens: usage.prompt, completionTokens: usage.completion,
-            totalTokens: usage.total, costPer1k,
-          });
-          if (caller.kind === "apikey") {
-            await addApiKeyUsage(caller.id, usage.total);
-          }
-        } catch (e) {
-          controller.error(e);
-          await recordUsage({
-            requestId, userId: caller.userId, channelId, model, upstreamModel,
-            status: "failed", latencyMs: Date.now() - startedAt,
-            lastError: e instanceof Error ? e.message : "stream error",
-          });
-        }
-      },
-    });
-    return new NextResponse(streamOut, {
-      status: upstream.status,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  }
-
-  // 非流式：读 JSON，取 usage，记账后透传
-  const json = await upstream.json().catch(() => null);
-  const usage = json?.usage ?? {};
-  await recordUsage({
-    requestId, userId: caller.userId, channelId: String(channel._id),
-    model, upstreamModel, status: "completed",
-    latencyMs: Date.now() - startedAt,
-    promptTokens: usage.prompt_tokens ?? 0,
-    completionTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
-    costPer1k: channel.costPer1kTokensMicros ?? 0,
-  });
-  if (caller.kind === "apikey") {
-    await addApiKeyUsage(caller.id, usage.total_tokens ?? 0);
-  }
-  return NextResponse.json(json ?? { error: "empty upstream response" });
+  await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "failed", lastError: "all eligible channels failed" } });
+  return error("UPSTREAM_ERROR", 502, "所有上游渠道均不可用");
 }
 
-/** 从 SSE 缓冲里抓 usage（OpenAI 兼容的 stream_options.include_usage）。 */
-function extractUsage(buffer: string) {
-  const matches = [...buffer.matchAll(/"usage"\s*:\s*(\{[^}]*\})/g)];
-  if (matches.length === 0) return null;
-  try {
-    const u = JSON.parse(matches[matches.length - 1][1]);
-    return {
-      prompt: u.prompt_tokens ?? 0,
-      completion: u.completion_tokens ?? 0,
-      total: u.total_tokens ?? 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function recordUsage(input: {
-  requestId: string;
-  userId: string;
-  channelId: string;
-  model: string;
-  upstreamModel: string;
-  status: "completed" | "failed";
-  latencyMs: number;
-  lastError?: string;
-  promptTokens?: number;
-  completionTokens?: number;
-  totalTokens?: number;
-  costPer1k?: number;
-}) {
-  try {
-    const total = input.totalTokens ?? 0;
-    const costMicros = Math.round((total / 1000) * (input.costPer1k ?? 0));
-    await UsageModel.findOneAndUpdate(
-      { userId: input.userId, requestId: input.requestId },
-      {
-        $set: {
-          channelId: input.channelId,
-          model: input.model,
-          upstreamModel: input.upstreamModel,
-          status: input.status,
-          promptTokens: input.promptTokens ?? 0,
-          completionTokens: input.completionTokens ?? 0,
-          totalTokens: total,
-          costMicros,
-          latencyMs: input.latencyMs,
-          lastError: input.lastError ?? null,
-        },
-      },
-      { upsert: true, new: true },
-    );
-  } catch {
-    // 记账失败不影响响应，降级 console
-    console.error("recordUsage failed", input.requestId);
-  }
+function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number; outputCostPer1kTokensMicros: number }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number }, started: number) {
+  const stream = new ReadableStream<Uint8Array>({ async start(controller) {
+    const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
+    try { for (;;) { const next = await reader.read(); if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value); }
+      const match = [...raw.matchAll(/"usage"\s*:\s*(\{[^}]*\})/g)].at(-1);
+      if (!match) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
+      else { const value = JSON.parse(match[1]); const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost); await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
+      controller.close();
+    } catch (e) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: e instanceof Error ? e.message : "stream failed" } }); controller.error(e); }
+  }});
+  return new NextResponse(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
 }

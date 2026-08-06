@@ -22,10 +22,13 @@ export function generateApiKey(): { plaintext: string; keyHash: string; prefix: 
 
 export interface ResolvedApiKey {
   id: string;
+  userId: string;
   name: string;
   allowedModels: string[];
   quotaTotalTokens: number;
   quotaUsedTokens: number;
+  rateLimitPerMinute: number;
+  monthlySpendLimitMicros: number;
 }
 
 /** 校验 Bearer key，返回 key 信息（有效且未超额度）或 null。 */
@@ -43,15 +46,21 @@ export async function resolveApiKey(key: string): Promise<ResolvedApiKey | null>
   if (!doc) {
     return null;
   }
+  if (!doc.userId) {
+    return null;
+  }
   if (doc.quotaTotalTokens > 0 && doc.quotaUsedTokens >= doc.quotaTotalTokens) {
     return null; // 额度用完
   }
   return {
     id: String(doc._id),
+    userId: String(doc.userId),
     name: doc.name,
     allowedModels: doc.allowedModels,
     quotaTotalTokens: doc.quotaTotalTokens,
     quotaUsedTokens: doc.quotaUsedTokens,
+    rateLimitPerMinute: doc.rateLimitPerMinute,
+    monthlySpendLimitMicros: doc.monthlySpendLimitMicros,
   };
 }
 

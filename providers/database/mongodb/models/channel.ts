@@ -23,7 +23,8 @@ export interface ChannelRecord {
   protocol: ChannelProtocol;
   models: ModelMapping[];
   priority: number;           // 小=优先（便宜的排前）
-  costPer1kTokensMicros: number;
+  inputCostPer1kTokensMicros: number;
+  outputCostPer1kTokensMicros: number;
   enabled: boolean;
   timeoutMs: number;
   createdAt: Date;
@@ -53,7 +54,8 @@ const channelSchema = new Schema<ChannelRecord>(
     },
     models: { type: [modelMappingSchema], required: true, default: [] },
     priority: { type: Number, required: true, default: 10 },
-    costPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
+    inputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
+    outputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
     enabled: { type: Boolean, required: true, default: true },
     timeoutMs: { type: Number, required: true, default: 60000, min: 1000 },
   },

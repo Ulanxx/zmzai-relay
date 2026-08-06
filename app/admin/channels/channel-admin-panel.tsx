@@ -14,7 +14,8 @@ interface Channel {
   protocol: string;
   models: ModelMapping[];
   priority: number;
-  costPer1kTokensMicros: number;
+  inputCostPer1kTokensMicros: number;
+  outputCostPer1kTokensMicros: number;
   enabled: boolean;
   timeoutMs: number;
 }
@@ -31,7 +32,8 @@ export function ChannelAdminPanel({
     apiKey: "",
     modelsText: "gpt-4o=gpt-4o",
     priority: 10,
-    costPer1kTokensMicros: 0,
+    inputCostPer1kTokensMicros: 0,
+    outputCostPer1kTokensMicros: 0,
   });
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<Record<string, string>>({});
@@ -58,7 +60,8 @@ export function ChannelAdminPanel({
         apiKey: form.apiKey,
         models,
         priority: form.priority,
-        costPer1kTokensMicros: form.costPer1kTokensMicros,
+        inputCostPer1kTokensMicros: form.inputCostPer1kTokensMicros,
+        outputCostPer1kTokensMicros: form.outputCostPer1kTokensMicros,
       }),
     });
     setBusy(false);
@@ -69,7 +72,7 @@ export function ChannelAdminPanel({
     }
     const j = await res.json();
     setChannels((prev) => [...prev, j.channel]);
-    setForm({ name: "", baseUrl: "", apiKey: "", modelsText: "gpt-4o=gpt-4o", priority: 10, costPer1kTokensMicros: 0 });
+    setForm({ name: "", baseUrl: "", apiKey: "", modelsText: "gpt-4o=gpt-4o", priority: 10, inputCostPer1kTokensMicros: 0, outputCostPer1kTokensMicros: 0 });
   }
 
   async function testChannel(id: string) {
@@ -147,15 +150,20 @@ export function ChannelAdminPanel({
             <input value={form.modelsText} onChange={(e) => setForm({ ...form, modelsText: e.target.value })}
               className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-4o=gpt-4o, smart=gpt-4o-mini" />
           </label>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted">优先级（小=先试）</span>
               <input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
                 className="border border-line bg-paper px-3 py-2" />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">成本（微美元/1k token）</span>
-              <input type="number" value={form.costPer1kTokensMicros} onChange={(e) => setForm({ ...form, costPer1kTokensMicros: Number(e.target.value) })}
+              <span className="text-muted">输入成本（微美元/1k）</span>
+              <input type="number" value={form.inputCostPer1kTokensMicros} onChange={(e) => setForm({ ...form, inputCostPer1kTokensMicros: Number(e.target.value) })}
+                className="border border-line bg-paper px-3 py-2" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted">输出成本（微美元/1k）</span>
+              <input type="number" value={form.outputCostPer1kTokensMicros} onChange={(e) => setForm({ ...form, outputCostPer1kTokensMicros: Number(e.target.value) })}
                 className="border border-line bg-paper px-3 py-2" />
             </label>
           </div>

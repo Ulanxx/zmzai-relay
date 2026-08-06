@@ -7,14 +7,17 @@ import {
   type Types,
 } from "mongoose";
 
-export const usageStatuses = ["received", "streaming", "completed", "failed"] as const;
+export const usageStatuses = ["received", "streaming", "processing", "completed", "failed", "unsettled"] as const;
 export type UsageStatus = (typeof usageStatuses)[number];
 
 /** 每次调用留痕（审计 + 成本）。 */
 export interface UsageRecord {
   requestId: string;
   userId: Types.ObjectId;         // muzhi 用户
-  channelId: Types.ObjectId;      // 命中的渠道
+  apiKeyId: Types.ObjectId | null;
+  callerKind: "apikey" | "session";
+  callerId: string;
+  channelId: Types.ObjectId | null; // 命中的渠道
   model: string;                  // 对外统一模型名
   upstreamModel: string;          // 上游实际模型名
   status: UsageStatus;
@@ -22,6 +25,12 @@ export interface UsageRecord {
   completionTokens: number;
   totalTokens: number;
   costMicros: number;
+  chargedMicros: number;
+  grossProfitMicros: number;
+  inputPricePer1kMicros: number;
+  outputPricePer1kMicros: number;
+  inputCostPer1kTokensMicros: number;
+  outputCostPer1kTokensMicros: number;
   latencyMs: number;
   lastError: string | null;
   createdAt: Date;
@@ -34,7 +43,10 @@ const usageSchema = new Schema<UsageRecord>(
   {
     requestId: { type: String, required: true, trim: true, maxlength: 128 },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    channelId: { type: Schema.Types.ObjectId, ref: "Channel", required: true },
+    apiKeyId: { type: Schema.Types.ObjectId, ref: "ApiKey", default: null, index: true },
+    callerKind: { type: String, enum: ["apikey", "session"], required: true, default: "session" },
+    callerId: { type: String, required: true, index: true },
+    channelId: { type: Schema.Types.ObjectId, ref: "Channel", default: null },
     model: { type: String, required: true, trim: true },
     upstreamModel: { type: String, required: true, trim: true },
     status: { type: String, enum: usageStatuses, required: true, default: "received" },
@@ -42,13 +54,19 @@ const usageSchema = new Schema<UsageRecord>(
     completionTokens: { type: Number, required: true, default: 0, min: 0 },
     totalTokens: { type: Number, required: true, default: 0, min: 0 },
     costMicros: { type: Number, required: true, default: 0, min: 0 },
+    chargedMicros: { type: Number, required: true, default: 0, min: 0 },
+    grossProfitMicros: { type: Number, required: true, default: 0 },
+    inputPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
+    outputPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
+    inputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
+    outputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
     latencyMs: { type: Number, required: true, default: 0, min: 0 },
     lastError: { type: String, default: null },
   },
   { strict: "throw", timestamps: true },
 );
 
-usageSchema.index({ userId: 1, requestId: 1 }, { unique: true });
+usageSchema.index({ callerKind: 1, callerId: 1, requestId: 1 }, { unique: true });
 usageSchema.index({ createdAt: -1 });
 
 export const UsageModel =

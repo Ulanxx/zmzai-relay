@@ -37,7 +37,8 @@ export default async function AdminChannelsPage() {
     protocol: c.protocol,
     models: c.models,
     priority: c.priority,
-    costPer1kTokensMicros: c.costPer1kTokensMicros,
+    inputCostPer1kTokensMicros: c.inputCostPer1kTokensMicros,
+    outputCostPer1kTokensMicros: c.outputCostPer1kTokensMicros,
     enabled: c.enabled,
     timeoutMs: c.timeoutMs,
   }));

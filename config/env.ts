@@ -25,6 +25,7 @@ const envSchema = z.object({
     .min(1000)
     .max(300000)
     .default(60000),
+  RELAY_INTERNAL_CRON_SECRET: optionalEnvString(),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;

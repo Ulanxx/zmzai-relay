@@ -10,9 +10,11 @@ export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
   name: z.string().min(1).max(80),
+  userId: z.string().optional(),
   quotaTotalTokens: z.coerce.number().min(0).default(0),
   rateLimitPerMinute: z.coerce.number().int().min(1).default(60),
   allowedModels: z.array(z.string()).optional().default([]),
+  monthlySpendLimitMicros: z.coerce.number().min(0).default(0),
 });
 
 function err(code: string, status: number, message: string) {
@@ -32,8 +34,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  let admin;
   try {
-    await requireAdmin();
+    admin = await requireAdmin();
   } catch (e) {
     if (e instanceof AdminRequiredError) return err("ADMIN_REQUIRED", 403, "需要管理员权限");
     throw e;
@@ -49,6 +52,7 @@ export async function POST(req: NextRequest) {
   await connectMongo();
   const created = await ApiKeyModel.create({
     ...parsed.data,
+    userId: parsed.data.userId ?? admin.id,
     keyHash,
     prefix,
     status: "active",

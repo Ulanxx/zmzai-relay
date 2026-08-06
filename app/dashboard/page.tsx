@@ -5,6 +5,11 @@ import { Wordmark } from "@/components/wordmark";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
+import { ApiKeyModel } from "@/providers/database/mongodb/models/apikey";
+import { BalanceAccountModel } from "@/providers/database/mongodb/models/balance";
+import { ModelPriceModel } from "@/providers/database/mongodb/models/model-price";
+
+import { TokenPanel } from "./token-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +36,12 @@ export default async function DashboardPage() {
     .lean();
 
   const totalTokens = usages.reduce((s, u) => s + (u.totalTokens ?? 0), 0);
-  const totalCost = usages.reduce((s, u) => s + (u.costMicros ?? 0), 0);
+  const totalCharged = usages.reduce((s, u) => s + (u.chargedMicros ?? 0), 0);
+  const [account, keys, prices] = await Promise.all([
+    BalanceAccountModel.findOne({ userId: user.id }).lean(),
+    ApiKeyModel.find({ userId: user.id }).sort({ createdAt: -1 }).lean(),
+    ModelPriceModel.find({ enabled: true }).sort({ model: 1 }).lean(),
+  ]);
 
   return (
     <main className="page-shell flex min-h-dvh flex-col py-10">
@@ -39,7 +49,7 @@ export default async function DashboardPage() {
         <Wordmark />
         <nav className="flex items-center gap-5 font-mono text-xs text-muted">
           {user.role === "admin" ? (
-            <Link href="/admin/channels" className="transition-colors hover:text-accent">渠道配置</Link>
+            <Link href="/admin" className="transition-colors hover:text-accent">运营管理</Link>
           ) : null}
           <span>{user.name}</span>
         </nav>
@@ -50,8 +60,7 @@ export default async function DashboardPage() {
           <p className="eyebrow">中转驿 · 我的用量</p>
           <h1 className="headline text-4xl">调用记录</h1>
           <p className="text-ink/70">
-            你好 {user.name}。最近 {usages.length} 次调用共 {totalTokens.toLocaleString()} tokens，
-            成本 {fmtCost(totalCost)}。
+            你好 {user.name}。可用余额 {fmtCost((account?.balanceMicros ?? 0) - (account?.reservedMicros ?? 0))}；最近 {usages.length} 次调用共 {totalTokens.toLocaleString()} tokens，已结算 {fmtCost(totalCharged)}。
           </p>
         </div>
 
@@ -65,10 +74,10 @@ export default async function DashboardPage() {
     "messages": [{"role": "user", "content": "你好"}],
     "stream": true
   }'`}</pre>
-          <p className="mt-3 text-sm text-muted">
-            v1 用 muzhi session 鉴权（登录 muzhi 即可调）。独立 API key 分发在 v2。
-          </p>
+          <p className="mt-3 text-sm text-muted">使用下方自助创建的 Token 鉴权。每次调用按模型公开价格从余额结算。</p>
         </div>
+
+        <TokenPanel initialKeys={keys.map((key) => ({ _id: String(key._id), prefix: key.prefix, name: key.name, status: key.status, rateLimitPerMinute: key.rateLimitPerMinute, monthlySpendLimitMicros: key.monthlySpendLimitMicros, monthlySpendUsedMicros: key.monthlySpendUsedMicros, lastUsedAt: key.lastUsedAt?.toISOString() ?? null }))} models={prices.map((price) => price.model)} />
 
         {usages.length === 0 ? (
           <p className="text-sm text-muted">还没有调用记录。</p>

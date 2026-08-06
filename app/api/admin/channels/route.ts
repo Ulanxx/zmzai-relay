@@ -15,7 +15,8 @@ const channelSchema = z.object({
     .array(z.object({ public: z.string().min(1), upstream: z.string().min(1) }))
     .min(1),
   priority: z.coerce.number().int().min(0).default(10),
-  costPer1kTokensMicros: z.coerce.number().min(0).default(0),
+  inputCostPer1kTokensMicros: z.coerce.number().min(0).default(0),
+  outputCostPer1kTokensMicros: z.coerce.number().min(0).default(0),
   enabled: z.boolean().optional().default(true),
   timeoutMs: z.coerce.number().int().min(1000).max(300000).default(60000),
 });
