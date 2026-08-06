@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { Wordmark } from "@/components/wordmark";
 import { getCurrentUser } from "@/providers/auth/session";
@@ -11,16 +12,18 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "渠道配置 · 中转驿 admin" };
 
+const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
+
 export default async function AdminChannelsPage() {
   const user = await getCurrentUser();
 
-  if (!user || user.role !== "admin") {
+  if (!user) {
+    redirect(`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/admin/channels")}`);
+  }
+  if (user.role !== "admin") {
     return (
       <main className="page-shell flex min-h-dvh flex-col items-center justify-center gap-6 py-10">
         <p className="text-lg text-ink/70">需要管理员权限</p>
-        <Link href="https://muzhi.zmzai.cloud/login" className="btn-primary">
-          去 muzhi 登录 →
-        </Link>
       </main>
     );
   }
