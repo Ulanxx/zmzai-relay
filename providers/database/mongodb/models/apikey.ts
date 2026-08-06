@@ -45,7 +45,7 @@ const apiKeySchema = new Schema<ApiKeyRecord>(
     monthlySpendLimitMicros: { type: Number, required: true, default: 0, min: 0 },
     monthlySpendUsedMicros: { type: Number, required: true, default: 0, min: 0 },
     monthlySpendReservedMicros: { type: Number, required: true, default: 0, min: 0 },
-    monthlySpendPeriod: { type: String, required: true, default: currentPeriod },
+    monthlySpendPeriod: { type: String, required: true, default: () => currentPeriod() },
     lastUsedAt: { type: Date, default: null },
   },
   { strict: "throw", timestamps: true },
