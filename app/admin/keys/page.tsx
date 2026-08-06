@@ -3,15 +3,15 @@ import Link from "next/link";
 import { Wordmark } from "@/components/wordmark";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
-import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { ApiKeyModel } from "@/providers/database/mongodb/models/apikey";
 
-import { ChannelAdminPanel } from "./channel-admin-panel";
+import { KeyAdminPanel } from "./key-admin-panel";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "渠道配置 · 中转驿 admin" };
+export const metadata = { title: "API Key 管理 · 中转驿 admin" };
 
-export default async function AdminChannelsPage() {
+export default async function AdminKeysPage() {
   const user = await getCurrentUser();
 
   if (!user || user.role !== "admin") {
@@ -26,17 +26,16 @@ export default async function AdminChannelsPage() {
   }
 
   await connectMongo();
-  const channels = await ChannelModel.find().sort({ priority: 1 }).lean();
-  const safe = channels.map((c) => ({
-    _id: String(c._id),
-    name: c.name,
-    baseUrl: c.baseUrl,
-    protocol: c.protocol,
-    models: c.models,
-    priority: c.priority,
-    costPer1kTokensMicros: c.costPer1kTokensMicros,
-    enabled: c.enabled,
-    timeoutMs: c.timeoutMs,
+  const keys = await ApiKeyModel.find().sort({ createdAt: -1 }).lean();
+  const safe = keys.map((k) => ({
+    _id: String(k._id),
+    prefix: k.prefix,
+    name: k.name,
+    status: k.status,
+    quotaTotalTokens: k.quotaTotalTokens,
+    quotaUsedTokens: k.quotaUsedTokens,
+    rateLimitPerMinute: k.rateLimitPerMinute,
+    allowedModels: k.allowedModels,
   }));
 
   return (
@@ -44,7 +43,7 @@ export default async function AdminChannelsPage() {
       <header className="flex items-center justify-between border-b-2 border-rule pb-5">
         <Wordmark />
         <nav className="flex items-center gap-5 font-mono text-xs text-muted">
-          <Link href="/admin/keys" className="transition-colors hover:text-accent">Key 管理</Link>
+          <Link href="/admin/channels" className="transition-colors hover:text-accent">渠道</Link>
           <Link href="/dashboard" className="transition-colors hover:text-accent">用量</Link>
           <span>m.zmzai.cloud · admin</span>
         </nav>
@@ -52,15 +51,15 @@ export default async function AdminChannelsPage() {
 
       <section className="flex flex-1 flex-col gap-10 py-12">
         <div className="flex flex-col gap-3">
-          <p className="eyebrow">中转驿 · 渠道配置</p>
-          <h1 className="headline text-4xl">上游渠道</h1>
+          <p className="eyebrow">中转驿 · API Key 管理</p>
+          <h1 className="headline text-4xl">分发 Key</h1>
           <p className="max-w-2xl text-ink/70">
-            配置第三方便宜中转站。每个渠道 = 一个上游（base_url + key + 模型映射）。
-            便宜的给低 priority 排前面，官方 API 做兜底。
+            给调用方发独立 key，调用方用 <code className="font-mono text-accent-readable">Authorization: Bearer zrk_...</code> 调用，
+            不用带 muzhi cookie。明文 key 只在创建时显示一次。
           </p>
         </div>
 
-        <ChannelAdminPanel initialChannels={safe} />
+        <KeyAdminPanel initialKeys={safe} />
       </section>
     </main>
   );

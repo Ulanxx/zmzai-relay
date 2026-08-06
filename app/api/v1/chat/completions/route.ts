@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getServerEnv } from "@/config/env";
+import { addApiKeyUsage, resolveApiKey } from "@/providers/auth/apikey";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
@@ -27,10 +28,44 @@ function err(code: string, status: number, message: string) {
   return NextResponse.json({ error: message, code }, { status });
 }
 
-export async function POST(req: NextRequest) {
+/** 调用方身份：API key（优先）或 muzhi session（兜底）。 */
+interface Caller {
+  kind: "apikey" | "session";
+  id: string;          // apiKeyId 或 userId
+  userId: string;      // 用于 Usage 归属（apikey 时记 key 归属 userId 或 key id）
+  label: string;
+  allowedModels: string[] | null; // null=不限
+}
+
+async function resolveCaller(req: NextRequest): Promise<Caller | null> {
+  const auth = req.headers.get("authorization");
+  if (auth?.startsWith("Bearer ")) {
+    const key = auth.slice(7).trim();
+    const k = await resolveApiKey(key);
+    if (!k) return null;
+    return {
+      kind: "apikey",
+      id: k.id,
+      userId: k.id, // Usage 归属记 key id（v1 简化）
+      label: k.name,
+      allowedModels: k.allowedModels.length > 0 ? k.allowedModels : null,
+    };
+  }
   const user = await getCurrentUser();
-  if (!user) {
-    return err("UNAUTHENTICATED", 401, "请先登录 muzhi 账号");
+  if (!user) return null;
+  return {
+    kind: "session",
+    id: user.id,
+    userId: user.id,
+    label: user.name,
+    allowedModels: null,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  const caller = await resolveCaller(req);
+  if (!caller) {
+    return err("UNAUTHENTICATED", 401, "需要有效的 API key（Authorization: Bearer zrk_...）或 muzhi 登录");
   }
 
   const body = await req.json().catch(() => null);
@@ -40,6 +75,10 @@ export async function POST(req: NextRequest) {
   }
   const { model, stream } = parsed.data;
   const requestId = parsed.data.requestId ?? randomUUID();
+
+  if (caller.allowedModels && !caller.allowedModels.includes(model)) {
+    return err("MODEL_NOT_ALLOWED", 403, `该 key 不允许调用模型 ${model}`);
+  }
 
   await connectMongo();
 
@@ -84,7 +123,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     await recordUsage({
-      requestId, userId: user.id, channelId: String(channel._id),
+      requestId, userId: caller.userId, channelId: String(channel._id),
       model, upstreamModel, status: "failed",
       latencyMs: Date.now() - startedAt,
       lastError: e instanceof Error ? e.message : "upstream connect failed",
@@ -95,7 +134,7 @@ export async function POST(req: NextRequest) {
   if (!upstream.ok) {
     const text = await upstream.text().catch(() => "");
     await recordUsage({
-      requestId, userId: user.id, channelId: String(channel._id),
+      requestId, userId: caller.userId, channelId: String(channel._id),
       model, upstreamModel, status: "failed",
       latencyMs: Date.now() - startedAt,
       lastError: `upstream ${upstream.status}: ${text.slice(0, 300)}`,
@@ -124,15 +163,18 @@ export async function POST(req: NextRequest) {
           }
           controller.close();
           await recordUsage({
-            requestId, userId: user.id, channelId, model, upstreamModel,
+            requestId, userId: caller.userId, channelId, model, upstreamModel,
             status: "completed", latencyMs: Date.now() - startedAt,
             promptTokens: usage.prompt, completionTokens: usage.completion,
             totalTokens: usage.total, costPer1k,
           });
+          if (caller.kind === "apikey") {
+            await addApiKeyUsage(caller.id, usage.total);
+          }
         } catch (e) {
           controller.error(e);
           await recordUsage({
-            requestId, userId: user.id, channelId, model, upstreamModel,
+            requestId, userId: caller.userId, channelId, model, upstreamModel,
             status: "failed", latencyMs: Date.now() - startedAt,
             lastError: e instanceof Error ? e.message : "stream error",
           });
@@ -153,7 +195,7 @@ export async function POST(req: NextRequest) {
   const json = await upstream.json().catch(() => null);
   const usage = json?.usage ?? {};
   await recordUsage({
-    requestId, userId: user.id, channelId: String(channel._id),
+    requestId, userId: caller.userId, channelId: String(channel._id),
     model, upstreamModel, status: "completed",
     latencyMs: Date.now() - startedAt,
     promptTokens: usage.prompt_tokens ?? 0,
@@ -161,6 +203,9 @@ export async function POST(req: NextRequest) {
     totalTokens: usage.total_tokens ?? 0,
     costPer1k: channel.costPer1kTokensMicros ?? 0,
   });
+  if (caller.kind === "apikey") {
+    await addApiKeyUsage(caller.id, usage.total_tokens ?? 0);
+  }
   return NextResponse.json(json ?? { error: "empty upstream response" });
 }
 
