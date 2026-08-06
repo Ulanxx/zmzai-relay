@@ -1,0 +1,11 @@
+import { redirect } from "next/navigation";
+import { RelayShell } from "@/components/relay-shell";
+import { getCurrentUser } from "@/providers/auth/session";
+import { connectMongo } from "@/providers/database/mongodb/connection";
+import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { ModelPriceModel } from "@/providers/database/mongodb/models/model-price";
+
+const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
+const money = (value: number) => `$${(value / 1e6).toFixed(4)}`;
+export const dynamic = "force-dynamic";
+export default async function ModelsPage() { const user = await getCurrentUser(); if (!user) redirect(`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/admin/models")}`); if (user.role !== "admin") redirect("/dashboard"); await connectMongo(); const [models, channels] = await Promise.all([ModelPriceModel.find().sort({ model: 1 }).lean(), ChannelModel.find().lean()]); return <RelayShell role="admin" userName={user.name}><p className="eyebrow">模型目录</p><h1 className="headline mt-2 text-4xl">公开的 5.6 系列</h1><p className="mt-3 text-ink/70">价格和推理强度在这里管理；上游映射只在渠道页维护。</p><div className="mt-8 divide-y divide-line border-y border-line">{models.map((model) => { const mappings = channels.filter((channel) => channel.models.some((mapping) => mapping.public === model.model)); const costReady = mappings.length > 0 && mappings.every((channel) => channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null); return <article key={model.model} className="grid gap-3 py-5 md:grid-cols-[1fr_auto]"><div><div className="flex items-center gap-3"><h2 className="font-mono text-base">{model.model}</h2><span className={model.enabled ? "font-mono text-xs text-success" : "font-mono text-xs text-muted"}>{model.enabled ? "已开放" : "已停用"}</span></div><p className="mt-2 text-sm text-muted">推理：{model.allowedReasoningEfforts.join(" · ")} · {mappings.map((channel) => channel.name).join(" · ") || "未映射渠道"}</p></div><div className="font-mono text-xs text-muted md:text-right">in {money(model.inputPricePer1kMicros)} / 1k<br />out {money(model.outputPricePer1kMicros)} / 1k<br />{costReady ? "成本已配置" : "成本待配置"}</div></article>; })}</div></RelayShell>; }

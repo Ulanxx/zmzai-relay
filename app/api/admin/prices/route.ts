@@ -4,9 +4,9 @@ import { z } from "zod";
 import { AdminRequiredError, requireAdmin } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { AdminAuditModel } from "@/providers/database/mongodb/models/admin-audit";
-import { ModelPriceModel } from "@/providers/database/mongodb/models/model-price";
+import { ModelPriceModel, reasoningEfforts } from "@/providers/database/mongodb/models/model-price";
 
-const schema = z.object({ model: z.string().min(1).max(120), inputPricePer1kMicros: z.coerce.number().int().min(0), outputPricePer1kMicros: z.coerce.number().int().min(0), maxInputTokens: z.coerce.number().int().min(1), maxOutputTokens: z.coerce.number().int().min(1), enabled: z.boolean().default(true), reason: z.string().min(1).max(500) });
+const schema = z.object({ model: z.string().min(1).max(120), inputPricePer1kMicros: z.coerce.number().int().min(0), outputPricePer1kMicros: z.coerce.number().int().min(0), maxInputTokens: z.coerce.number().int().min(1), maxOutputTokens: z.coerce.number().int().min(1), allowedReasoningEfforts: z.array(z.enum(reasoningEfforts)).min(1).default([...reasoningEfforts]), enabled: z.boolean().default(true), reason: z.string().min(1).max(500) });
 
 export async function GET() { try { await requireAdmin(); await connectMongo(); return NextResponse.json({ prices: await ModelPriceModel.find().sort({ model: 1 }).lean() }); } catch (e) { return e instanceof AdminRequiredError ? NextResponse.json({ error: "需要管理员权限", code: "ADMIN_REQUIRED" }, { status: 403 }) : Promise.reject(e); } }
 export async function POST(req: NextRequest) {

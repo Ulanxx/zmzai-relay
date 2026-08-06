@@ -9,7 +9,7 @@ import { chargeMicros, maximumChargeMicros, reserveBalance, releaseReservation, 
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelAttemptModel } from "@/providers/database/mongodb/models/channel-attempt";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
-import { ModelPriceModel } from "@/providers/database/mongodb/models/model-price";
+import { ModelPriceModel, reasoningEfforts } from "@/providers/database/mongodb/models/model-price";
 import { RateLimitBucketModel } from "@/providers/database/mongodb/models/rate-limit";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
 
@@ -20,6 +20,7 @@ const chatSchema = z.object({
   messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1),
   stream: z.boolean().optional().default(false),
   max_tokens: z.number().int().positive().optional(),
+  reasoning_effort: z.enum(reasoningEfforts).optional(),
   requestId: z.string().max(128).optional(),
 }).strict().passthrough();
 
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
   await connectMongo();
   const price = await ModelPriceModel.findOne({ model: parsed.data.model, enabled: true }).lean();
   if (!price) return error("MODEL_NOT_PRICED", 400, "该模型尚未开放或未配置价格");
+  if (parsed.data.reasoning_effort && !price.allowedReasoningEfforts.includes(parsed.data.reasoning_effort)) return error("REASONING_EFFORT_NOT_ALLOWED", 400, "该模型不支持此推理强度");
   if ((parsed.data.max_tokens ?? 4096) > price.maxOutputTokens) return error("MAX_TOKENS_EXCEEDED", 400, "max_tokens 超过该模型允许的上限");
   if (Buffer.byteLength(JSON.stringify(parsed.data.messages), "utf8") > 128 * 1024) return error("PROMPT_TOO_LARGE", 400, "消息内容超过 128 KiB 限制");
 
@@ -92,9 +94,10 @@ export async function POST(req: NextRequest) {
       if (!tokens) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "unsettled", lastError: "upstream omitted usage" } }); return error("USAGE_UNAVAILABLE", 502, "上游未返回用量，已取消扣费"); }
       const prompt = tokens.prompt_tokens ?? 0; const completion = tokens.completion_tokens ?? 0;
       const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros);
-      const cost = chargeMicros(prompt, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0);
-      await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" });
-      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros });
+      const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
+      const cost = costConfigured ? chargeMicros(prompt, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0) : 0;
+      await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" });
+      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros ?? 0, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros ?? 0 });
       return NextResponse.json(json);
     } catch (e) { await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 500) : "network failure", costStatus: "unknown" }); }
   }
@@ -102,7 +105,7 @@ export async function POST(req: NextRequest) {
   return error("UPSTREAM_ERROR", 502, "所有上游渠道均不可用");
 }
 
-function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number; outputCostPer1kTokensMicros: number }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number }, started: number) {
+function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number }, started: number) {
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
     try { for (;;) { const next = await reader.read(); if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value); }
@@ -115,7 +118,7 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
         try { const event = JSON.parse(payload); if (event.usage) value = event.usage; } catch { /* Ignore malformed non-usage events already sent to the client. */ }
       }
       if (!value) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
-      else { const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost); await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: "known" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
+      else { const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null; const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = costConfigured ? chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost) : 0; await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
       controller.close();
     } catch (e) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: e instanceof Error ? e.message : "stream failed" } }); controller.error(e); }
   }});

@@ -14,8 +14,8 @@ interface Channel {
   protocol: string;
   models: ModelMapping[];
   priority: number;
-  inputCostPer1kTokensMicros: number;
-  outputCostPer1kTokensMicros: number;
+  inputCostPer1kTokensMicros: number | null;
+  outputCostPer1kTokensMicros: number | null;
   enabled: boolean;
   timeoutMs: number;
 }
