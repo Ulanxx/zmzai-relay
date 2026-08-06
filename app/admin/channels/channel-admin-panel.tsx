@@ -30,7 +30,7 @@ export function ChannelAdminPanel({
     name: "",
     baseUrl: "",
     apiKey: "",
-    modelsText: "gpt-4o=gpt-4o",
+    modelsText: "gpt-5.6-sol=gpt-5.6-sol, gpt-5.6-terra=gpt-5.6-terra, gpt-5.6-luna=gpt-5.6-luna",
     priority: 10,
     inputCostPer1kTokensMicros: 0,
     outputCostPer1kTokensMicros: 0,
@@ -72,7 +72,7 @@ export function ChannelAdminPanel({
     }
     const j = await res.json();
     setChannels((prev) => [...prev, j.channel]);
-    setForm({ name: "", baseUrl: "", apiKey: "", modelsText: "gpt-4o=gpt-4o", priority: 10, inputCostPer1kTokensMicros: 0, outputCostPer1kTokensMicros: 0 });
+    setForm({ name: "", baseUrl: "", apiKey: "", modelsText: "gpt-5.6-sol=gpt-5.6-sol, gpt-5.6-terra=gpt-5.6-terra, gpt-5.6-luna=gpt-5.6-luna", priority: 10, inputCostPer1kTokensMicros: 0, outputCostPer1kTokensMicros: 0 });
   }
 
   async function testChannel(id: string) {
@@ -148,7 +148,7 @@ export function ChannelAdminPanel({
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted">模型映射（逗号分隔，对外名=上游名）</span>
             <input value={form.modelsText} onChange={(e) => setForm({ ...form, modelsText: e.target.value })}
-              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-4o=gpt-4o, smart=gpt-4o-mini" />
+              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-5.6-terra=gpt-5.6-terra" />
           </label>
           <div className="grid grid-cols-3 gap-4">
             <label className="flex flex-col gap-1 text-sm">

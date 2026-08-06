@@ -138,7 +138,7 @@ Caddy 自动签 TLS 证书。`m.zmzai.cloud` 的 A 记录指向服务器后，
 | 名称 | `cheap-a`（备注哪个站） |
 | Base URL | 中转站给的 `https://api.cheap-a.com/v1` |
 | 密钥 | 中转站发的 key |
-| 模型 | 它支持的模型（填对外统一的 `gpt-4o`/`smart`/`fast`） |
+| 模型 | 它支持的模型（填对外统一的 `gpt-5.6-sol`/`gpt-5.6-terra`/`gpt-5.6-luna`） |
 | 模型重定向 | 对外名 → 上游实际名（如果上游改名了） |
 | 优先级 / 权重 | 便宜的给高优先级/高权重 |
 

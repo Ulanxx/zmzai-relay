@@ -11,8 +11,8 @@ export type ChannelProtocol = (typeof channelProtocols)[number];
 
 /** 对外统一模型名 → 上游实际模型名 的一条映射。 */
 export interface ModelMapping {
-  public: string;    // 对外 "gpt-4o" / "smart"
-  upstream: string;  // 上游实际 "gpt-4o-2024" / "gpt4o"
+  public: string;    // 对外 "gpt-5.6-terra"
+  upstream: string;  // 上游实际 "gpt-5.6-terra"
 }
 
 /** 上游中转站渠道（admin 配置）。 */

@@ -117,7 +117,7 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-muted">允许模型（逗号分隔，空=全部）</span>
             <input value={models} onChange={(e) => setModels(e.target.value)}
-              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-4o, smart" />
+              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-5.6-sol, gpt-5.6-terra" />
           </label>
           {error ? <p className="text-sm text-red-700">{error}</p> : null}
           <button type="submit" disabled={busy} className="btn-primary self-start disabled:opacity-50">
@@ -133,7 +133,7 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
             <pre className="mt-1 overflow-x-auto font-mono text-xs text-ink/80">{`curl https://m.zmzai.cloud/api/v1/chat/completions \\
   -H "Authorization: Bearer ${newKey}" \\
   -H "Content-Type: application/json" \\
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"你好"}]}'`}</pre>
+  -d '{"model":"gpt-5.6-terra","reasoning_effort":"high","messages":[{"role":"user","content":"你好"}]}'`}</pre>
           </div>
         ) : null}
       </section>
