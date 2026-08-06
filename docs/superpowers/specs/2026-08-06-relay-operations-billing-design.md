@@ -36,6 +36,7 @@
 | `model` | 对外公开模型名，唯一 |
 | `inputPricePer1kMicros` | 输入 token 售价 |
 | `outputPricePer1kMicros` | 输出 token 售价 |
+| `maxInputTokens` / `maxOutputTokens` | 此模型单次可计费的硬上限 |
 | `enabled` | 普通用户是否可调用 |
 | `createdAt` / `updatedAt` | 时间戳 |
 
@@ -64,8 +65,13 @@
 历史记录不会因日后改价或渠道成本变化而变化。
 
 新增 `ChannelAttempt`，一条记录代表一个请求对一个候选渠道的一次尝试：关联
-`usageId`、渠道、上游模型、状态、延迟和脱敏错误摘要。一个请求只有一条
-`UsageRecord`，可以有多条 `ChannelAttempt`；最终成功或失败不会覆盖先前的尝试。
+`usageId`、渠道、上游模型、状态、延迟和脱敏错误摘要，以及 `costStatus`
+（`known`、`unknown`、`not_charged`）。一个请求只有一条 `UsageRecord`，可以有多条
+`ChannelAttempt`；最终成功或失败不会覆盖先前的尝试。
+
+第一版的 `UsageRecord.costMicros` 仅统计最终成功渠道已返回 usage 的确定成本。超时、
+连接中断等结果不确定的尝试必须标记 `costStatus=unknown`，不以零成本计入毛利；Admin
+运营台单独展示「待核查上游成本」，不将其混入已确认毛利。
 
 ## 余额与账本
 
@@ -93,10 +99,10 @@
 ## API 网关结算流程
 
 1. 解析 Bearer Token，验证状态、归属用户、模型权限和速率限制。
-2. 读取用户账户及公开模型价格。请求的消息 UTF-8 总字节数不得超过 128 KiB；`max_tokens` 默认 4096，最大 8192。
-3. 以 UTF-8 字节数作为输入 token 的保守上界，加 `max_tokens` 作为输出上界，计算本次最高售价。金额计算对输入、输出分别向上取整：`ceil(tokens * pricePer1kMicros / 1000)`。
-4. 在 transaction 中创建 `UsageRecord`（状态 `processing`）和 `BalanceReservation`，并增加账户 `reservedMicros`。可用余额或 Token 当月可用额度不足最高售价时，返回 `402 INSUFFICIENT_BALANCE`，不访问上游。
-5. 取支持模型且已启用的渠道，按优先级升序依次尝试。每次尝试先创建 `ChannelAttempt`，结束时写入该次状态、延迟和错误摘要。每个渠道将公开模型名映射为上游模型名。
+2. 读取用户账户及公开模型价格。每个模型由 Admin 配置 `maxInputTokens` 与 `maxOutputTokens`；请求的消息 UTF-8 总字节数不得超过 128 KiB，`max_tokens` 不得超过该模型的 `maxOutputTokens`。
+3. 按模型完整 `maxInputTokens + maxOutputTokens` 计算单次可计费最高售价，作为预授权金额；不以字符或 tokenizer 估算替代该硬上限。金额计算对输入、输出分别向上取整：`ceil(tokens * pricePer1kMicros / 1000)`。
+4. 在 transaction 中创建 `UsageRecord`（状态 `processing`）和 `BalanceReservation`，并增加账户 `reservedMicros`。可用余额或 Token 当月可用额度不足完整最高售价时，返回 `402 INSUFFICIENT_BALANCE`，不访问上游。
+5. 取支持模型且已启用的渠道，按优先级升序依次尝试。主 `UsageRecord` 在全部候选结束前保持 `processing`。每次尝试先创建 `ChannelAttempt`，结束时写入该次状态、延迟、错误摘要和成本状态。每个渠道将公开模型名映射为上游模型名。
 6. 上游成功后取得输入与输出 usage，基于调用时价目计算 `chargedMicros`、`costMicros` 与 `grossProfitMicros`。
 7. 在 transaction 中将预留转为实际扣费：减少账户 `balanceMicros` 与 `reservedMicros`，将预留标记 `settled`，写 `BalanceLedger` 和结算快照，并更新 Token 的调用/token/消费统计。未使用的预留金额随事务释放。
 8. 上游失败时，释放全部预留，写失败调用与 `ChannelAttempt`；然后继续尝试下一个候选渠道，全部失败时返回 `502 UPSTREAM_ERROR`。
@@ -106,8 +112,9 @@
 
 ### 请求幂等性
 
-客户端可提交 `requestId`（最多 128 字符）。幂等键是调用者身份（Token 或 session
-用户）加 `requestId`；未提供时由网关生成 UUID，客户端重试不能依赖自动生成的 id。
+客户端可提交 `requestId`（最多 128 字符）。`UsageRecord` 保存 `callerKind`（`apikey`
+或 `session`）与 `callerId`（API key id 或 session user id）；唯一索引为
+`(callerKind, callerId, requestId)`。幂等键正是这三项；未提供时由网关生成 UUID，客户端重试不能依赖自动生成的 id。
 同一幂等键已有 `processing` 请求时返回 `409 REQUEST_IN_PROGRESS`；已有终态请求时返回
 `409 REQUEST_ALREADY_PROCESSED`。第一版不重放上游响应，以确保流式调用不会重复连接或重复收费。
 
