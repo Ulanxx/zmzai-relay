@@ -52,7 +52,7 @@
 
 ### 用量快照
 
-`UsageRecord` 增加 `apiKeyId` 和不可回写的结算快照：
+`UsageRecord` 代表一个用户请求，增加 `apiKeyId` 和不可回写的结算快照：
 
 - `chargedMicros`：向用户扣除的金额；
 - `costMicros`：实际命中渠道的成本；
@@ -62,6 +62,10 @@
 - 请求的用户、Token、公开模型、上游模型和渠道。
 
 历史记录不会因日后改价或渠道成本变化而变化。
+
+新增 `ChannelAttempt`，一条记录代表一个请求对一个候选渠道的一次尝试：关联
+`usageId`、渠道、上游模型、状态、延迟和脱敏错误摘要。一个请求只有一条
+`UsageRecord`，可以有多条 `ChannelAttempt`；最终成功或失败不会覆盖先前的尝试。
 
 ## 余额与账本
 
@@ -82,23 +86,36 @@
 
 管理员加减余额、调用扣费和退款必须在 MongoDB transaction 中同时更新余额、写流水和更新关联记录。账本与成功调用都不提供删除接口。
 
+新增 `BalanceReservation`，用于调用前的临时预授权：关联用户、Token、请求和预留
+金额，状态为 `held`、`settled` 或 `released`。账户额外保存 `reservedMicros`；可用余额
+为 `balanceMicros - reservedMicros`。
+
 ## API 网关结算流程
 
 1. 解析 Bearer Token，验证状态、归属用户、模型权限和速率限制。
-2. 读取用户账户及公开模型价格。用户余额不足以支付该模型最小可计费额时，直接返回 `402 INSUFFICIENT_BALANCE`，不访问上游。
-3. 取支持模型且已启用的渠道，按优先级升序依次尝试。每个渠道将公开模型名映射为上游模型名。
-4. 上游成功后取得输入与输出 usage，基于调用时价目计算 `chargedMicros`、`costMicros` 与 `grossProfitMicros`。
-5. 在 transaction 中防透支地扣除余额，写 `BalanceLedger` 和 `UsageRecord`，并更新 Token 的调用/token/消费统计。
-6. 上游失败只写失败调用与失败详情，不扣款；失败后继续尝试下一个候选渠道，全部失败时返回 `502 UPSTREAM_ERROR`。
-7. 流式调用仅在上游结束并带 usage 时结算。如上游未提供 usage，则记录 `unsettled` 状态和原因，不扣款，供管理员核查。系统不得猜测 token 数并收费。
+2. 读取用户账户及公开模型价格。请求的消息 UTF-8 总字节数不得超过 128 KiB；`max_tokens` 默认 4096，最大 8192。
+3. 以 UTF-8 字节数作为输入 token 的保守上界，加 `max_tokens` 作为输出上界，计算本次最高售价。金额计算对输入、输出分别向上取整：`ceil(tokens * pricePer1kMicros / 1000)`。
+4. 在 transaction 中创建 `UsageRecord`（状态 `processing`）和 `BalanceReservation`，并增加账户 `reservedMicros`。可用余额或 Token 当月可用额度不足最高售价时，返回 `402 INSUFFICIENT_BALANCE`，不访问上游。
+5. 取支持模型且已启用的渠道，按优先级升序依次尝试。每次尝试先创建 `ChannelAttempt`，结束时写入该次状态、延迟和错误摘要。每个渠道将公开模型名映射为上游模型名。
+6. 上游成功后取得输入与输出 usage，基于调用时价目计算 `chargedMicros`、`costMicros` 与 `grossProfitMicros`。
+7. 在 transaction 中将预留转为实际扣费：减少账户 `balanceMicros` 与 `reservedMicros`，将预留标记 `settled`，写 `BalanceLedger` 和结算快照，并更新 Token 的调用/token/消费统计。未使用的预留金额随事务释放。
+8. 上游失败时，释放全部预留，写失败调用与 `ChannelAttempt`；然后继续尝试下一个候选渠道，全部失败时返回 `502 UPSTREAM_ERROR`。
+9. 流式调用仅在上游结束并带 usage 时结算。如上游未提供 usage，则释放全部预留，记录 `unsettled` 状态和原因，供管理员核查。系统不得猜测 token 数并收费。
 
-扣款采用 transaction 加余额条件更新，任何并发调用均不得将用户余额扣为负数。若最终扣款竞争失败，调用记录保留但标记为未结算，并交由管理员处理。
+预留和结算均使用 transaction 加余额与额度条件更新，任何并发调用均不得令账户余额或 Token 可用额度小于零。
+
+### 请求幂等性
+
+客户端可提交 `requestId`（最多 128 字符）。幂等键是调用者身份（Token 或 session
+用户）加 `requestId`；未提供时由网关生成 UUID，客户端重试不能依赖自动生成的 id。
+同一幂等键已有 `processing` 请求时返回 `409 REQUEST_IN_PROGRESS`；已有终态请求时返回
+`409 REQUEST_ALREADY_PROCESSED`。第一版不重放上游响应，以确保流式调用不会重复连接或重复收费。
 
 ## Token 与限流
 
 `ApiKey` 必须归属一个用户，明文仅在创建或轮换响应中返回，持久化只存 hash。
 
-用户可创建多个 Token，设置：名称、允许模型、每分钟请求数和可选独立消费上限。用户可吊销或轮换自己名下的 Token；轮换立即吊销旧 Token。
+用户可创建多个 Token，设置：名称、允许模型、每分钟请求数和可选独立消费上限。独立消费上限以 `micros` 计，按 Asia/Shanghai 自然月累计，并在每月第一天归零；预留金额也计入当月可用额度。调用必须同时满足用户账户可用余额与 Token 当月可用额度。用户可吊销或轮换自己名下的 Token；轮换立即吊销旧 Token。
 
 管理员可跨用户查看、创建、吊销 Token。普通用户的请求只能以 session 用户作为查询条件，禁止使用任意 `userId` 参数读取他人资源。
 
@@ -114,7 +131,7 @@ Admin 与 User 使用独立信息架构。Admin 导航：
 4. **用户与余额**：搜索用户，查看余额、消费、Token，手动加减余额并填写原因。
 5. **全量 Token 与调用**：按用户、Token、模型、渠道、状态和时间筛选；可强制吊销 Token。
 
-Admin 的写入操作记录操作者、变更前后值、时间与理由。金额、成本、毛利全部来自服务端快照，不在浏览器计算。
+新增不可变 `AdminAuditLog`。Admin 的渠道、价目、用户状态、Token 与余额写入操作记录操作者、资源类型与 ID、变更前后值、时间与理由。金额、成本、毛利全部来自服务端快照，不在浏览器计算。
 
 ## User 使用端
 
