@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { Wordmark } from "@/components/wordmark";
 
-const adminLinks = [["概览", "/admin"], ["模型目录", "/admin/models"], ["渠道", "/admin/channels"], ["用户与余额", "/admin/users"], ["充值订单", "/admin/orders"], ["调用与账本", "/admin/activity"], ["Token", "/admin/keys"]] as const;
+const adminLinks = [["概览", "/admin"], ["模型目录", "/admin/models"], ["渠道", "/admin/channels"], ["用户与余额", "/admin/users"], ["运营调整", "/admin/operations"], ["充值订单", "/admin/orders"], ["调用与账本", "/admin/activity"], ["Token", "/admin/keys"]] as const;
 const userLinks = [["概览", "/dashboard"], ["模型", "/dashboard/models"], ["额度支持", "/dashboard/billing"], ["我的 Token", "/dashboard/keys"], ["用量与账单", "/dashboard/activity"], ["调用文档", "/dashboard/docs"]] as const;
 
 export function RelayShell({ role, userName, children }: { role: "admin" | "user"; userName: string; children: ReactNode }) {
