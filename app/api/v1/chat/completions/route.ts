@@ -31,18 +31,12 @@ type Caller = { kind: "apikey" | "session"; id: string; userId: string; label: s
 function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
 
 async function logRejectedRequest(caller: Caller, model: string, message: string, requestId?: string) {
-  await UsageModel.create({
-    requestId: requestId ?? randomUUID(),
-    userId: caller.userId,
-    apiKeyId: caller.kind === "apikey" ? caller.id : null,
-    callerKind: caller.kind,
-    callerId: caller.id,
-    channelId: null,
-    model: model || "unknown",
-    upstreamModel: "not-routed",
-    status: "failed",
-    lastError: message,
-  });
+  const id = requestId ?? randomUUID();
+  await UsageModel.updateOne(
+    { callerKind: caller.kind, callerId: caller.id, requestId: id },
+    { $setOnInsert: { requestId: id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: model || "unknown", upstreamModel: "not-routed", status: "failed", lastError: message } },
+    { upsert: true },
+  );
 }
 
 async function callerFor(req: NextRequest): Promise<Caller | null> {

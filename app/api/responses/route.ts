@@ -93,8 +93,9 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body.model !== "string") return NextResponse.json({ error: "请求体格式不正确", code: "INVALID_BODY" }, { status: 400 });
   const messages = toMessages(body);
   if (!messages.length) return NextResponse.json({ error: "input 不能为空", code: "INVALID_BODY" }, { status: 400 });
+  const { input: _input, instructions: _instructions, reasoning: _reasoning, max_output_tokens: _maxOutputTokens, max_completion_tokens: _maxCompletionTokens, ...chatFields } = body;
   const requestBody = {
-    ...body,
+    ...chatFields,
     messages,
     max_tokens: body.max_output_tokens ?? body.max_completion_tokens ?? body.max_tokens,
     reasoning_effort: body.reasoning_effort ?? (body.reasoning && typeof body.reasoning === "object" ? (body.reasoning as { effort?: string }).effort : undefined),
