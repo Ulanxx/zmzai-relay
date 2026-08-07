@@ -29,16 +29,14 @@ export async function GET(req: NextRequest) {
       { $group: { _id: null, amountMicros: { $sum: { $abs: "$amountMicros" } } } },
     ]),
   ]);
-  if (!account) return NextResponse.json({ success: false, message: "账户余额尚未初始化" }, { status: 404 });
-
-  const availableMicros = Math.max(0, account.balanceMicros - account.reservedMicros);
+  const availableMicros = account ? Math.max(0, account.balanceMicros - account.reservedMicros) : 0;
   const usedMicros = charged[0]?.amountMicros ?? 0;
   return NextResponse.json({
     success: true,
     data: {
       quota: Math.round(availableMicros * NEW_API_UNITS_PER_MICRO_DOLLAR),
       used_quota: Math.round(usedMicros * NEW_API_UNITS_PER_MICRO_DOLLAR),
-      group: "zmzai cloud",
+      group: account ? "zmzai cloud" : "待分配额度",
       currency: "USD",
       is_valid: true,
     },
