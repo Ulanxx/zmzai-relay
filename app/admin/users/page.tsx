@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { BalanceAccountModel } from "@/providers/database/mongodb/models/balance";
 import { ApiKeyModel } from "@/providers/database/mongodb/models/apikey";
-import { UserModel } from "@/providers/database/mongodb/models/user";
+import { UserModel } from "@zmzai/db";
 
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
 const money = (value: number) => `$${(value / 1e6).toFixed(4)}`;

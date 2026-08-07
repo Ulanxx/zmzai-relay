@@ -1,16 +1,15 @@
-import { createHash } from "node:crypto";
-
 import { cookies } from "next/headers";
 
 import { getServerEnv, requireAuthSecret } from "@/config/env";
 import { connectMongo } from "@/providers/database/mongodb/connection";
-import { SessionModel } from "@/providers/database/mongodb/models/session";
 import {
+  SessionModel,
   UserModel,
+  hashToken,
   type UserDocument,
   type UserRole,
   type UserStatus,
-} from "@/providers/database/mongodb/models/user";
+} from "@zmzai/db";
 
 export interface CurrentUser {
   id: string;
@@ -19,11 +18,6 @@ export interface CurrentUser {
   role: UserRole;
   status: UserStatus;
   emailVerified: boolean;
-}
-
-function hashToken(token: string): string {
-  const secret = requireAuthSecret();
-  return createHash("sha256").update(`${secret}:${token}`).digest("hex");
 }
 
 function toAccount(user: UserDocument): CurrentUser {
@@ -52,7 +46,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   await connectMongo();
   const session = await SessionModel.findOne({
-    tokenHash: hashToken(token),
+    tokenHash: hashToken(requireAuthSecret(), token),
     expiresAt: { $gt: new Date() },
   });
 

@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { AdminRequiredError, requireAdmin } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
-import { UserModel } from "@/providers/database/mongodb/models/user";
+import { UserModel } from "@zmzai/db";
 import { WalletOrderModel, walletOrderStatuses } from "@/providers/database/mongodb/models/wallet-order";
 
 export const dynamic = "force-dynamic";

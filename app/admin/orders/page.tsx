@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
-import { UserModel } from "@/providers/database/mongodb/models/user";
+import { UserModel } from "@zmzai/db";
 import { WalletOrderModel } from "@/providers/database/mongodb/models/wallet-order";
 import { OrderAdminPanel } from "./order-admin-panel";
 
