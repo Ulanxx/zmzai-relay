@@ -18,6 +18,8 @@ const envSchema = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]+$/)
     .default("muzhi_session"),
+  /** 父域 Cookie，退出时必须以相同作用域清除。 */
+  SESSION_COOKIE_DOMAIN: optionalEnvString(),
   /** 中转驿管理端额外要求 role=admin */
   RELAY_DEFAULT_UPSTREAM_TIMEOUT_MS: z.coerce
     .number()

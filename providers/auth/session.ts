@@ -66,6 +66,25 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   return toAccount(user);
 }
 
+/** 删除共享会话并清除父域 Cookie，使所有 zmzai 子域同时退出。 */
+export async function destroySession(): Promise<void> {
+  const env = getServerEnv();
+  const cookieStore = await cookies();
+  const token = cookieStore.get(env.SESSION_COOKIE_NAME)?.value;
+  if (token) {
+    await connectMongo();
+    await SessionModel.deleteOne({ tokenHash: hashToken(requireAuthSecret(), token) });
+  }
+  cookieStore.set(env.SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    ...(env.SESSION_COOKIE_DOMAIN ? { domain: env.SESSION_COOKIE_DOMAIN } : {}),
+    maxAge: 0,
+  });
+}
+
 export class AdminRequiredError extends Error {
   constructor() {
     super("ADMIN_REQUIRED");
