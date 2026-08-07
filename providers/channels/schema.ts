@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { supportedModels } from "@/providers/database/mongodb/models/model-price";
 
 const channelConfigFields = {
   name: z.string().min(1).max(80),
   baseUrl: z.string().url().max(500),
-  models: z.array(z.object({ public: z.string().min(1), upstream: z.string().min(1) })).min(1),
+  models: z.array(z.object({ public: z.enum(supportedModels), upstream: z.string().min(1) })).min(1),
   priority: z.coerce.number().int().min(0),
   inputCostPer1kTokensMicros: z.number().int().min(0).nullable(),
   outputCostPer1kTokensMicros: z.number().int().min(0).nullable(),

@@ -9,7 +9,7 @@ import { chargeMicros, maximumChargeMicros, reserveBalance, releaseReservation, 
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelAttemptModel } from "@/providers/database/mongodb/models/channel-attempt";
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
-import { ModelPriceModel, reasoningEfforts } from "@/providers/database/mongodb/models/model-price";
+import { ModelPriceModel, reasoningEfforts, supportedModels } from "@/providers/database/mongodb/models/model-price";
 import { RateLimitBucketModel } from "@/providers/database/mongodb/models/rate-limit";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
 import { safeUpstreamFetch } from "@/providers/network/safe-upstream-fetch";
@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
   if (caller.kind === "apikey" && !(await consumeRateLimit(caller.id, caller.rpm ?? 60))) return error("RATE_LIMITED", 429, "此 Token 已达到每分钟调用上限");
 
   await connectMongo();
+  if (!(supportedModels as readonly string[]).includes(parsed.data.model)) return error("MODEL_NOT_FOUND", 400, "该模型不在当前开放目录");
   const price = await ModelPriceModel.findOne({ model: parsed.data.model, enabled: true }).lean();
   if (!price) return error("MODEL_NOT_PRICED", 400, "该模型尚未开放或未配置价格");
   if (parsed.data.reasoning_effort && !price.allowedReasoningEfforts.includes(parsed.data.reasoning_effort)) return error("REASONING_EFFORT_NOT_ALLOWED", 400, "该模型不支持此推理强度");
