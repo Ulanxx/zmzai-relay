@@ -4,6 +4,7 @@ export interface BalanceAccountRecord {
   userId: Types.ObjectId;
   balanceMicros: number;
   reservedMicros: number;
+  welcomeGrantedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -12,12 +13,13 @@ const accountSchema = new Schema<BalanceAccountRecord>({
   userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
   balanceMicros: { type: Number, required: true, default: 0, min: 0 },
   reservedMicros: { type: Number, required: true, default: 0, min: 0 },
+  welcomeGrantedAt: { type: Date, default: null },
 }, { strict: "throw", timestamps: true });
 
 export const BalanceAccountModel =
   (models.BalanceAccount as Model<BalanceAccountRecord> | undefined) ?? model<BalanceAccountRecord>("BalanceAccount", accountSchema);
 
-export const ledgerKinds = ["admin_credit", "admin_debit", "purchase_credit", "usage_charge", "refund"] as const;
+export const ledgerKinds = ["admin_credit", "admin_debit", "purchase_credit", "welcome_credit", "usage_charge", "refund"] as const;
 export interface BalanceLedgerRecord {
   userId: Types.ObjectId;
   kind: (typeof ledgerKinds)[number];

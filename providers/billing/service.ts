@@ -5,6 +5,7 @@ import { BalanceAccountModel, BalanceLedgerModel } from "@/providers/database/mo
 import { BalanceReservationModel } from "@/providers/database/mongodb/models/reservation";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
 import { currentPeriod } from "./period";
+import { ensureWelcomeCredit } from "./onboarding";
 
 const RESERVATION_MS = 10 * 60 * 1000;
 
@@ -32,6 +33,7 @@ interface ReserveInput {
 }
 
 export async function reserveBalance(input: ReserveInput): Promise<void> {
+  await ensureWelcomeCredit(input.userId);
   const dbSession = await mongoose.startSession();
   try {
     await dbSession.withTransaction(async () => {
