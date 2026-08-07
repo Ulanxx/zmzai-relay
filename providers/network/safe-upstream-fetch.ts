@@ -64,7 +64,12 @@ export async function safeUpstreamFetch(input: string | URL, init: RequestInit =
     const req = request(url, {
       method: init.method ?? "GET",
       headers: Object.fromEntries(new Headers(init.headers).entries()),
-      lookup: (_host, _options, callback) => callback(null, address.address, address.family),
+      lookup: (_host, options, callback) => {
+        // Node 20 may request all addresses for connection racing. The callback
+        // shape must match that mode or net.connect rejects the pinned address.
+        if (options && typeof options === "object" && "all" in options && options.all) callback(null, [address]);
+        else callback(null, address.address, address.family);
+      },
       signal: init.signal ?? undefined,
     }, (res) => {
       const headers = new Headers();
