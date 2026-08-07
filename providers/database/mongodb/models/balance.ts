@@ -17,7 +17,7 @@ const accountSchema = new Schema<BalanceAccountRecord>({
 export const BalanceAccountModel =
   (models.BalanceAccount as Model<BalanceAccountRecord> | undefined) ?? model<BalanceAccountRecord>("BalanceAccount", accountSchema);
 
-export const ledgerKinds = ["admin_credit", "admin_debit", "usage_charge", "refund"] as const;
+export const ledgerKinds = ["admin_credit", "admin_debit", "purchase_credit", "usage_charge", "refund"] as const;
 export interface BalanceLedgerRecord {
   userId: Types.ObjectId;
   kind: (typeof ledgerKinds)[number];
