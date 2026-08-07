@@ -21,12 +21,29 @@ const chatSchema = z.object({
   messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1),
   stream: z.boolean().optional().default(false),
   max_tokens: z.number().int().positive().optional(),
+  max_output_tokens: z.number().int().positive().optional(),
+  max_completion_tokens: z.number().int().positive().optional(),
   reasoning_effort: z.enum(reasoningEfforts).optional(),
   requestId: z.string().max(128).optional(),
 }).strict().passthrough();
 
 type Caller = { kind: "apikey" | "session"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null };
 function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
+
+async function logRejectedRequest(caller: Caller, model: string, message: string, requestId?: string) {
+  await UsageModel.create({
+    requestId: requestId ?? randomUUID(),
+    userId: caller.userId,
+    apiKeyId: caller.kind === "apikey" ? caller.id : null,
+    callerKind: caller.kind,
+    callerId: caller.id,
+    channelId: null,
+    model: model || "unknown",
+    upstreamModel: "not-routed",
+    status: "failed",
+    lastError: message,
+  });
+}
 
 async function callerFor(req: NextRequest): Promise<Caller | null> {
   const auth = req.headers.get("authorization");
@@ -53,15 +70,24 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) return error("INVALID_BODY", 400, "请求体格式不正确");
+  const requestedMaxTokens = parsed.data.max_tokens ?? parsed.data.max_output_tokens ?? parsed.data.max_completion_tokens;
+  if (requestedMaxTokens && !parsed.data.max_tokens) parsed.data.max_tokens = requestedMaxTokens;
   if (caller.allowedModels && !caller.allowedModels.includes(parsed.data.model)) return error("MODEL_NOT_ALLOWED", 403, "此 Token 不允许调用该模型");
   if (caller.kind === "apikey" && !(await consumeRateLimit(caller.id, caller.rpm ?? 60))) return error("RATE_LIMITED", 429, "此 Token 已达到每分钟调用上限");
 
   await connectMongo();
-  if (!(supportedModels as readonly string[]).includes(parsed.data.model)) return error("MODEL_NOT_FOUND", 400, "该模型不在当前开放目录");
+  if (!(supportedModels as readonly string[]).includes(parsed.data.model)) {
+    await logRejectedRequest(caller, parsed.data.model, "该模型不在当前开放目录", parsed.data.requestId);
+    return error("MODEL_NOT_FOUND", 400, "该模型不在当前开放目录");
+  }
   const price = await ModelPriceModel.findOne({ model: parsed.data.model, enabled: true }).lean();
   if (!price) return error("MODEL_NOT_PRICED", 400, "该模型尚未开放或未配置价格");
   if (parsed.data.reasoning_effort && !price.allowedReasoningEfforts.includes(parsed.data.reasoning_effort)) return error("REASONING_EFFORT_NOT_ALLOWED", 400, "该模型不支持此推理强度");
-  if ((parsed.data.max_tokens ?? 4096) > price.maxOutputTokens) return error("MAX_TOKENS_EXCEEDED", 400, "max_tokens 超过该模型允许的上限");
+  if ((parsed.data.max_tokens ?? 4096) > price.maxOutputTokens) {
+    const message = `max_tokens 超过该模型允许的上限（${price.maxOutputTokens}）`;
+    await logRejectedRequest(caller, parsed.data.model, message, parsed.data.requestId);
+    return error("MAX_TOKENS_EXCEEDED", 400, message);
+  }
   if (Buffer.byteLength(JSON.stringify(parsed.data.messages), "utf8") > 128 * 1024) return error("PROMPT_TOO_LARGE", 400, "消息内容超过 128 KiB 限制");
 
   const requestId = parsed.data.requestId ?? randomUUID();
