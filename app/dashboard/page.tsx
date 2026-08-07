@@ -6,9 +6,10 @@ import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { BalanceAccountModel } from "@/providers/database/mongodb/models/balance";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
+import { cnyMicrosLabel } from "@/providers/billing/currency";
 
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
-const money = (value: number) => `$${(value / 1e6).toFixed(4)}`;
+const money = (value: number) => cnyMicrosLabel(value);
 export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const user = await getCurrentUser();

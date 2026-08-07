@@ -1,5 +1,6 @@
 import { ChannelModel } from "@/providers/database/mongodb/models/channel";
 import { ModelPriceModel, supportedModels } from "@/providers/database/mongodb/models/model-price";
+import { cnyMicrosLabel } from "@/providers/billing/currency";
 
 export interface PublicModel {
   model: string;
@@ -29,5 +30,5 @@ export async function getPublicModels(): Promise<PublicModel[]> {
 }
 
 export function moneyMicros(value: number): string {
-  return `$${(value / 1_000_000).toFixed(4)}`;
+  return cnyMicrosLabel(value);
 }

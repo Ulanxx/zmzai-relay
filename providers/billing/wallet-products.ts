@@ -1,3 +1,5 @@
+import { cnyFenLabel, cnyMicrosLabel } from "./currency";
+
 export interface WalletProduct {
   id: string;
   name: string;
@@ -6,9 +8,9 @@ export interface WalletProduct {
 }
 
 const fallbackProducts: WalletProduct[] = [
-  { id: "starter", name: "入门额度 · $1", creditMicros: 1_000_000, paymentAmountFen: 800 },
-  { id: "builder", name: "开发额度 · $5", creditMicros: 5_000_000, paymentAmountFen: 4_000 },
-  { id: "power", name: "长期额度 · $20", creditMicros: 20_000_000, paymentAmountFen: 16_000 },
+  { id: "starter", name: "入门额度 · ¥8", creditMicros: 1_000_000, paymentAmountFen: 800 },
+  { id: "builder", name: "开发额度 · ¥40", creditMicros: 5_000_000, paymentAmountFen: 4_000 },
+  { id: "power", name: "长期额度 · ¥160", creditMicros: 20_000_000, paymentAmountFen: 16_000 },
 ];
 
 export function getWalletProducts(): WalletProduct[] {
@@ -28,10 +30,4 @@ export function getWalletProducts(): WalletProduct[] {
   }
 }
 
-export function usdMicrosLabel(value: number): string {
-  return `$${(value / 1_000_000).toFixed(2)}`;
-}
-
-export function cnyFenLabel(value: number): string {
-  return `¥${(value / 100).toFixed(2)}`;
-}
+export { cnyFenLabel, cnyMicrosLabel };
