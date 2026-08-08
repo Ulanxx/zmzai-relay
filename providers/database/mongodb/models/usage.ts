@@ -15,8 +15,9 @@ export interface UsageRecord {
   requestId: string;
   userId: Types.ObjectId;         // muzhi 用户
   apiKeyId: Types.ObjectId | null;
-  callerKind: "apikey" | "session";
+  callerKind: "apikey" | "session" | "sandbox_key";
   callerId: string;
+  sandboxKeyId: Types.ObjectId | null;
   channelId: Types.ObjectId | null; // 命中的渠道
   model: string;                  // 对外统一模型名
   upstreamModel: string;          // 上游实际模型名
@@ -44,8 +45,9 @@ const usageSchema = new Schema<UsageRecord>(
     requestId: { type: String, required: true, trim: true, maxlength: 128 },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     apiKeyId: { type: Schema.Types.ObjectId, ref: "ApiKey", default: null, index: true },
-    callerKind: { type: String, enum: ["apikey", "session"], required: true, default: "session" },
+    callerKind: { type: String, enum: ["apikey", "session", "sandbox_key"], required: true, default: "session" },
     callerId: { type: String, required: true, index: true },
+    sandboxKeyId: { type: Schema.Types.ObjectId, ref: "SandboxKey", default: null, index: true },
     channelId: { type: Schema.Types.ObjectId, ref: "Channel", default: null },
     model: { type: String, required: true, trim: true },
     upstreamModel: { type: String, required: true, trim: true },

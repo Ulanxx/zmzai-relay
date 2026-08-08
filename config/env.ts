@@ -28,6 +28,8 @@ const envSchema = z.object({
     .max(300000)
     .default(60000),
   RELAY_INTERNAL_CRON_SECRET: optionalEnvString(),
+  RELAY_SANDBOX_SERVICE_SECRET_CURRENT: optionalEnvString(),
+  RELAY_SANDBOX_SERVICE_SECRET_PREVIOUS: optionalEnvString(),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
@@ -44,5 +46,11 @@ export function requireAuthSecret(): string {
   if (!secret) {
     throw new Error("AUTH_SECRET 未设置，无法校验 muzhi session");
   }
+  return secret;
+}
+
+export function requireSandboxServiceSecret(): string {
+  const secret = getServerEnv().RELAY_SANDBOX_SERVICE_SECRET_CURRENT;
+  if (!secret) throw new Error("RELAY_SANDBOX_SERVICE_SECRET_CURRENT 未设置");
   return secret;
 }
