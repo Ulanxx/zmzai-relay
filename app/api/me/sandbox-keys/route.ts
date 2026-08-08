@@ -22,8 +22,8 @@ export async function POST(request: NextRequest) {
   if (!user) return unauthorized();
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ code: "INVALID_BODY", error: "密钥名称需要在 1 到 80 个字符之间" }, { status: 400 });
-  const generated = generateSandboxKey();
+  const { plaintext, keyHash, prefix } = generateSandboxKey();
   await connectMongo();
-  const record = await SandboxKeyModel.create({ ...generated, name: parsed.data.name, userId: user.id, status: "active" });
-  return NextResponse.json({ key: generated.plaintext, record: { id: String(record._id), prefix: record.prefix, name: record.name, status: record.status, createdAt: record.createdAt, lastUsedAt: record.lastUsedAt, revokedAt: record.revokedAt } }, { status: 201, headers: { "Cache-Control": "no-store" } });
+  const record = await SandboxKeyModel.create({ keyHash, prefix, name: parsed.data.name, userId: user.id, status: "active" });
+  return NextResponse.json({ key: plaintext, record: { id: String(record._id), prefix: record.prefix, name: record.name, status: record.status, createdAt: record.createdAt, lastUsedAt: record.lastUsedAt, revokedAt: record.revokedAt } }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }
