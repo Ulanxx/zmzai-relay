@@ -6,12 +6,17 @@ import { isAgentServiceAuthorization } from "@/providers/auth/agent-service";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const chatMessageSchema = z.object({
+  role: z.string(),
+  content: z.string().nullable(),
+}).passthrough();
+
 const bodySchema = z.object({
   userId: z.string().min(1).max(128),
   taskRunId: z.string().min(1).max(128),
   requestId: z.string().min(1).max(128),
   model: z.string().min(1),
-  messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1),
+  messages: z.array(chatMessageSchema).min(1),
   tools: z.array(z.unknown()).optional(),
   tool_choice: z.unknown().optional(),
   stream: z.boolean().default(true),

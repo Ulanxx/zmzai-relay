@@ -19,9 +19,14 @@ import { safeUpstreamFetch } from "@/providers/network/safe-upstream-fetch";
 
 export const dynamic = "force-dynamic";
 
+const chatMessageSchema = z.object({
+  role: z.string(),
+  content: z.string().nullable(),
+}).passthrough();
+
 const chatSchema = z.object({
   model: z.string().min(1),
-  messages: z.array(z.object({ role: z.string(), content: z.string() })).min(1),
+  messages: z.array(chatMessageSchema).min(1),
   stream: z.boolean().optional().default(false),
   max_tokens: z.number().int().positive().optional(),
   max_output_tokens: z.number().int().positive().optional(),
