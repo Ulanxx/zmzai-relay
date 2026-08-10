@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { isAgentServiceAuthorization } from "@/providers/auth/agent-service";
+import { getServerEnv } from "@/config/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ code: "INVALID_BODY", error: "请求体格式不正确" }, { status: 400 });
 
   const { userId, taskRunId, ...body } = parsed.data;
-  const target = new URL("/api/v1/chat/completions", request.url);
+  const target = new URL("/api/v1/chat/completions", getServerEnv().RELAY_INTERNAL_ORIGIN);
   const response = await fetch(target, {
     method: "POST",
     headers: {

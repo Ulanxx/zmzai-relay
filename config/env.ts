@@ -32,6 +32,8 @@ const envSchema = z.object({
   RELAY_SANDBOX_SERVICE_SECRET_PREVIOUS: optionalEnvString(),
   RELAY_AGENT_SERVICE_SECRET_CURRENT: optionalEnvString(),
   RELAY_AGENT_SERVICE_SECRET_PREVIOUS: optionalEnvString(),
+  /** Agent 内部调用走本机 Relay，避免经公网域名回环。 */
+  RELAY_INTERNAL_ORIGIN: z.string().url().default("http://127.0.0.1:3002"),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
