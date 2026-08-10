@@ -30,6 +30,8 @@ const envSchema = z.object({
   RELAY_INTERNAL_CRON_SECRET: optionalEnvString(),
   RELAY_SANDBOX_SERVICE_SECRET_CURRENT: optionalEnvString(),
   RELAY_SANDBOX_SERVICE_SECRET_PREVIOUS: optionalEnvString(),
+  RELAY_AGENT_SERVICE_SECRET_CURRENT: optionalEnvString(),
+  RELAY_AGENT_SERVICE_SECRET_PREVIOUS: optionalEnvString(),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;

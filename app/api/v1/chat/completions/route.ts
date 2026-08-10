@@ -4,8 +4,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { isSandboxServiceAuthorization, resolveSandboxKey } from "@/providers/auth/sandbox-key";
+import { isAgentServiceAuthorization } from "@/providers/auth/agent-service";
 import { resolveApiKey } from "@/providers/auth/apikey";
 import { getCurrentUser } from "@/providers/auth/session";
+import { UserModel } from "@zmzai/db";
 import { chargeMicros, maximumChargeMicros, reserveBalance, releaseReservation, settleReservation, BillingError } from "@/providers/billing/service";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelAttemptModel } from "@/providers/database/mongodb/models/channel-attempt";
@@ -28,31 +30,38 @@ const chatSchema = z.object({
   requestId: z.string().max(128).optional(),
 }).strict().passthrough();
 
-type Caller = { kind: "apikey" | "session" | "sandbox_key"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null };
+type Caller = { kind: "apikey" | "session" | "sandbox_key" | "agent_service"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null; taskRunId: string | null };
 function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
 
 async function logRejectedRequest(caller: Caller, model: string, message: string, requestId?: string) {
   const id = requestId ?? randomUUID();
   await UsageModel.updateOne(
     { callerKind: caller.kind, callerId: caller.id, requestId: id },
-    { $setOnInsert: { requestId: id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, sandboxKeyId: caller.kind === "sandbox_key" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: model || "unknown", upstreamModel: "not-routed", status: "failed", lastError: message } },
+    { $setOnInsert: { requestId: id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, sandboxKeyId: caller.kind === "sandbox_key" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, taskRunId: caller.taskRunId, channelId: null, model: model || "unknown", upstreamModel: "not-routed", status: "failed", lastError: message } },
     { upsert: true },
   );
 }
 
 async function callerFor(req: NextRequest): Promise<Caller | null> {
+  const agentUserId = req.headers.get("x-zmzai-agent-user-id");
+  if (agentUserId && isAgentServiceAuthorization(req.headers.get("authorization"))) {
+    await connectMongo();
+    const user = await UserModel.findById(agentUserId).lean();
+    if (!user || user.status !== "active" || (!user.emailVerified && user.role !== "admin")) return null;
+    return { kind: "agent_service", id: `agent:${user._id}`, userId: String(user._id), label: "a.zmzai.cloud", allowedModels: null, rpm: 60, taskRunId: req.headers.get("x-zmzai-agent-task-run-id")?.slice(0, 128) ?? null };
+  }
   const sandboxKey = req.headers.get("x-zmzai-sandbox-key");
   if (sandboxKey && isSandboxServiceAuthorization(req.headers.get("authorization"))) {
     const key = await resolveSandboxKey(sandboxKey);
-    return key ? { kind: "sandbox_key", id: key.id, userId: key.userId, label: key.name, allowedModels: null, rpm: 60 } : null;
+    return key ? { kind: "sandbox_key", id: key.id, userId: key.userId, label: key.name, allowedModels: null, rpm: 60, taskRunId: null } : null;
   }
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) {
     const key = await resolveApiKey(auth.slice(7).trim());
-    return key ? { kind: "apikey", id: key.id, userId: key.userId, label: key.name, allowedModels: key.allowedModels.length ? key.allowedModels : null, rpm: key.rateLimitPerMinute } : null;
+    return key ? { kind: "apikey", id: key.id, userId: key.userId, label: key.name, allowedModels: key.allowedModels.length ? key.allowedModels : null, rpm: key.rateLimitPerMinute, taskRunId: null } : null;
   }
   const user = await getCurrentUser();
-  return user ? { kind: "session", id: user.id, userId: user.id, label: user.name, allowedModels: null, rpm: null } : null;
+  return user ? { kind: "session", id: user.id, userId: user.id, label: user.name, allowedModels: null, rpm: null, taskRunId: null } : null;
 }
 
 async function consumeRateLimit(keyId: string, limit: number): Promise<boolean> {
@@ -73,7 +82,7 @@ export async function POST(req: NextRequest) {
   const requestedMaxTokens = parsed.data.max_tokens ?? parsed.data.max_output_tokens ?? parsed.data.max_completion_tokens;
   if (requestedMaxTokens && !parsed.data.max_tokens) parsed.data.max_tokens = requestedMaxTokens;
   if (caller.allowedModels && !caller.allowedModels.includes(parsed.data.model)) return error("MODEL_NOT_ALLOWED", 403, "此 Token 不允许调用该模型");
-  if ((caller.kind === "apikey" || caller.kind === "sandbox_key") && !(await consumeRateLimit(caller.id, caller.rpm ?? 60))) return error("RATE_LIMITED", 429, "此 Token 已达到每分钟调用上限");
+  if ((caller.kind === "apikey" || caller.kind === "sandbox_key" || caller.kind === "agent_service") && !(await consumeRateLimit(caller.id, caller.rpm ?? 60))) return error("RATE_LIMITED", 429, "此调用方已达到每分钟调用上限");
 
   await connectMongo();
   if (!(supportedModels as readonly string[]).includes(parsed.data.model)) {
@@ -94,7 +103,7 @@ export async function POST(req: NextRequest) {
   const existing = await UsageModel.findOne({ callerKind: caller.kind, callerId: caller.id, requestId }).lean();
   if (existing) return error(existing.status === "processing" ? "REQUEST_IN_PROGRESS" : "REQUEST_ALREADY_PROCESSED", 409, "此 requestId 已处理，不能重复调用");
 
-  const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, sandboxKeyId: caller.kind === "sandbox_key" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, channelId: null, model: parsed.data.model, upstreamModel: "pending", status: "processing" });
+  const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, sandboxKeyId: caller.kind === "sandbox_key" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, taskRunId: caller.taskRunId, channelId: null, model: parsed.data.model, upstreamModel: "pending", status: "processing" });
   const reserved = maximumChargeMicros(price);
   try { await reserveBalance({ usageId: usage._id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, amountMicros: reserved }); }
   catch (e) {
