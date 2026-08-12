@@ -48,8 +48,8 @@ jobs:
 
       - name: Pack artifact
         run: |
-          FILES=".next next.config.ts next.config.mjs next.config.js package.json pnpm-lock.yaml pnpm-workspace.yaml"
-          for p in public messages content scripts middleware.ts src; do
+          FILES=".next package.json pnpm-lock.yaml pnpm-workspace.yaml"
+          for p in next.config.ts next.config.mjs next.config.js public messages content scripts middleware.ts src; do
             [ -e "$p" ] && FILES="$FILES $p"
           done
           tar -czf /tmp/${APP_NAME}-${{ github.sha }}.tar.gz \
