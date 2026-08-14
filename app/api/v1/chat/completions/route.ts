@@ -124,11 +124,11 @@ export async function POST(req: NextRequest) {
     const upstreamModel = channel.models.find((item) => item.public === parsed.data.model)?.upstream ?? parsed.data.model;
     const started = Date.now();
     try {
-      // 建连/首字节超时：仅覆盖 TCP+TLS+首字节阶段（默认 60s 足够建连）。
-      // 不再用整体倒计时覆盖流式读取——长输出（如 PPT 的几百行脚本）
-      // 会被无脑切断并透传底层 "terminated"。流读取的卡死保护由
-      // streamResponse 里的 idle watchdog（120s 无新数据才中断）负责。
-      const upstream = await safeUpstreamFetch(`${channel.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, model: upstreamModel, requestId: undefined, stream_options: parsed.data.stream ? { include_usage: true } : undefined }), signal: AbortSignal.timeout(channel.timeoutMs) });
+      // 建连/首字节超时（channel.timeoutMs）：response header 到达即摘除，
+      // 不覆盖流式读取——AbortSignal.timeout 曾把活跃长输出（PPT 几百行
+      // 脚本）在 60/120s 硬切报 terminated/aborted。流式卡死保护由
+      // streamResponse 的 idle watchdog（120s 无新数据才中断）负责。
+      const upstream = await safeUpstreamFetch(`${channel.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, model: upstreamModel, requestId: undefined, stream_options: parsed.data.stream ? { include_usage: true } : undefined }), connectTimeoutMs: channel.timeoutMs });
       if (!upstream.ok) {
         const details = (await upstream.text().catch(() => "")).slice(0, 500);
         await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: `HTTP ${upstream.status}: ${details}`, costStatus: "not_charged" });

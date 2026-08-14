@@ -55,12 +55,25 @@ export async function validateUpstreamUrl(input: string): Promise<void> {
   await resolvePublicUrl(input);
 }
 
-export async function safeUpstreamFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+export type SafeUpstreamFetchInit = RequestInit & {
+  /** 建连/首字节超时（ms）。response header 到达即视为成功并摘除定时器；
+   *  流式读取阶段不受它约束（由调用方的 idle watchdog 保护）。默认 30s。 */
+  connectTimeoutMs?: number;
+};
+
+export async function safeUpstreamFetch(input: string | URL, init: SafeUpstreamFetchInit = {}): Promise<Response> {
   const { url, address } = await resolvePublicUrl(input);
   const body = typeof init.body === "string" || init.body instanceof Uint8Array ? init.body : undefined;
   if (init.body && body === undefined) throw new UnsafeUpstreamUrlError("渠道请求体格式不受支持");
 
   return new Promise<Response>((resolve, reject) => {
+    // 不把 init.signal 传给 request()：AbortSignal.timeout 会在 N 秒后无条件
+    // destroy socket，即使流在活跃输出也会被误杀（PPT 长输出被切断报
+    // terminated/aborted 就是这个机制）。改为自己管理建连超时——response
+    // header 返回即建连成功，立即 clearTimeout，流式阶段交给调用方
+    // （streamResponse 的 idle watchdog）保护。init.signal 仅保留"外部取消"
+    // 语义（到点取消整个请求），不再承担超时职责。
+    const signal = init.signal;
     const req = request(url, {
       method: init.method ?? "GET",
       headers: Object.fromEntries(new Headers(init.headers).entries()),
@@ -70,15 +83,20 @@ export async function safeUpstreamFetch(input: string | URL, init: RequestInit =
         if (options && typeof options === "object" && "all" in options && options.all) callback(null, [address]);
         else callback(null, address.address, address.family);
       },
-      signal: init.signal ?? undefined,
     }, (res) => {
+      clearTimeout(connectTimer);
       const headers = new Headers();
       for (const [name, value] of Object.entries(res.headers)) {
         if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
       resolve(new Response(Readable.toWeb(res) as ReadableStream<Uint8Array>, { status: res.statusCode ?? 502, headers }));
     });
-    req.once("error", reject);
+    // 建连/首字节超时：手动定时器，response 回来后 clearTimeout 摘除。
+    const connectTimer = setTimeout(() => {
+      req.destroy(new Error(`UPSTREAM_CONNECT_TIMEOUT（${init.connectTimeoutMs ?? 30_000}ms 未收到响应头）`));
+    }, init.connectTimeoutMs ?? 30_000);
+    if (signal) signal.addEventListener("abort", () => { clearTimeout(connectTimer); req.destroy(new Error("The operation was aborted")); }, { once: true });
+    req.once("error", (e) => { clearTimeout(connectTimer); reject(e); });
     if (body) req.write(body);
     req.end();
   });
