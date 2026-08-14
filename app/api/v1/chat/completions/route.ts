@@ -124,7 +124,11 @@ export async function POST(req: NextRequest) {
     const upstreamModel = channel.models.find((item) => item.public === parsed.data.model)?.upstream ?? parsed.data.model;
     const started = Date.now();
     try {
-      const upstream = await safeUpstreamFetch(`${channel.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, model: upstreamModel, requestId: undefined, stream_options: parsed.data.stream ? { include_usage: true } : undefined }), signal: AbortSignal.timeout(Math.min(channel.timeoutMs, 120_000)) });
+      // 建连/首字节超时：仅覆盖 TCP+TLS+首字节阶段（默认 60s 足够建连）。
+      // 不再用整体倒计时覆盖流式读取——长输出（如 PPT 的几百行脚本）
+      // 会被无脑切断并透传底层 "terminated"。流读取的卡死保护由
+      // streamResponse 里的 idle watchdog（120s 无新数据才中断）负责。
+      const upstream = await safeUpstreamFetch(`${channel.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${channel.apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ ...parsed.data, model: upstreamModel, requestId: undefined, stream_options: parsed.data.stream ? { include_usage: true } : undefined }), signal: AbortSignal.timeout(channel.timeoutMs) });
       if (!upstream.ok) {
         const details = (await upstream.text().catch(() => "")).slice(0, 500);
         await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: `HTTP ${upstream.status}: ${details}`, costStatus: "not_charged" });
@@ -147,10 +151,23 @@ export async function POST(req: NextRequest) {
   return error("UPSTREAM_ERROR", 502, "所有上游渠道均不可用");
 }
 
+/** 流式 idle 超时：只要在此时长内收到过新数据就重置计时；连续无新数据
+ *  才判定为死连接。活跃的长输出（如几百行脚本）不会被误杀。 */
+const UPSTREAM_STREAM_IDLE_TIMEOUT_MS = 120_000;
+
 function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number }, started: number) {
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
-    try { for (;;) { const next = await reader.read(); if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value); }
+    try { for (;;) {
+      // idle watchdog：每次 read 最多等 IDLE_TIMEOUT，有新数据即重置。
+      // 用 setTimeout + reject，read 成功后 clearTimeout 干净清理。
+      let timer: NodeJS.Timeout | undefined;
+      const idleTimeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("UPSTREAM_STREAM_IDLE_TIMEOUT")), UPSTREAM_STREAM_IDLE_TIMEOUT_MS); });
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try { next = await Promise.race([reader.read(), idleTimeout]); }
+      finally { if (timer) clearTimeout(timer); }
+      if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value);
+    }
       raw += decoder.decode();
       let value: { prompt_tokens?: number; completion_tokens?: number } | null = null;
       for (const line of raw.split(/\r?\n/)) {
@@ -162,7 +179,7 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
       if (!value) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
       else { const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null; const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = costConfigured ? chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost) : 0; await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
       controller.close();
-    } catch (e) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: e instanceof Error ? e.message : "stream failed" } }); controller.error(e); }
+    } catch (e) { await releaseReservation(usageId); const isIdle = e instanceof Error && e.message.includes("IDLE_TIMEOUT"); const reason = isIdle ? "上游流 120s 无数据（idle 超时），疑似死连接" : (e instanceof Error ? e.message : "上游流读取失败"); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: reason } }); controller.error(new Error(reason)); }
   }});
   return new NextResponse(stream, { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } });
 }
