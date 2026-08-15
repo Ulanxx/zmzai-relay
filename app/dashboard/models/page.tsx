@@ -17,7 +17,7 @@ export default async function DashboardModelsPage() {
   const models = await getPublicModels();
 
   return (
-    <RelayShell role="user" userName={user.name}>
+    <RelayShell role="user" userName={user.name} isAdminUser={user.role === "admin"}>
       <p className="eyebrow">模型目录</p>
       <h1 className="headline mt-2 text-4xl">为每次调用选模型</h1>
       <p className="mt-3 max-w-2xl text-ink/70">查看当前价格、上下文上限和推理强度。详情页附带可直接复制的 API 请求示例。</p>

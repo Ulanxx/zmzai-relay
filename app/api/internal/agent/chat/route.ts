@@ -22,6 +22,9 @@ const bodySchema = z.object({
   tool_choice: z.unknown().optional(),
   stream: z.boolean().default(true),
   max_tokens: z.number().int().positive().optional(),
+  // Kept explicit because this internal endpoint is strict, while the public
+  // OpenAI-compatible endpoint already accepts and validates this field.
+  reasoning_effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 }).strict();
 
 export async function POST(request: NextRequest) {
