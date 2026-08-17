@@ -25,6 +25,7 @@ const chatMessageSchema = z.object({
 }).passthrough();
 
 const chatSchema = z.object({
+  channel: z.string().min(1).optional(),
   model: z.string().min(1),
   messages: z.array(chatMessageSchema).min(1),
   stream: z.boolean().optional().default(false),
@@ -37,6 +38,17 @@ const chatSchema = z.object({
 
 type Caller = { kind: "apikey" | "session" | "sandbox_key" | "agent_service"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null; taskRunId: string | null };
 function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
+
+/** 从上游 usage 中提取 cache token 数（兼容 Anthropic 顶层字段和 OpenAI 嵌套格式）。 */
+function extractCacheTokens(tokens: Record<string, unknown>): { cacheRead: number; cacheWrite: number } {
+  let cacheRead = 0;
+  let cacheWrite = 0;
+  if (typeof tokens.cache_read_input_tokens === "number") cacheRead = tokens.cache_read_input_tokens;
+  if (typeof tokens.cache_creation_input_tokens === "number") cacheWrite = tokens.cache_creation_input_tokens;
+  const details = tokens.prompt_tokens_details as Record<string, unknown> | undefined;
+  if (typeof details?.cached_tokens === "number") cacheRead = details.cached_tokens;
+  return { cacheRead, cacheWrite };
+}
 
 async function logRejectedRequest(caller: Caller, model: string, message: string, requestId?: string) {
   const id = requestId ?? randomUUID();
@@ -109,7 +121,7 @@ export async function POST(req: NextRequest) {
   if (existing) return error(existing.status === "processing" ? "REQUEST_IN_PROGRESS" : "REQUEST_ALREADY_PROCESSED", 409, "此 requestId 已处理，不能重复调用");
 
   const usage = await UsageModel.create({ requestId, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, sandboxKeyId: caller.kind === "sandbox_key" ? caller.id : null, callerKind: caller.kind, callerId: caller.id, taskRunId: caller.taskRunId, channelId: null, model: parsed.data.model, upstreamModel: "pending", status: "processing" });
-  const reserved = maximumChargeMicros(price);
+  const reserved = maximumChargeMicros({ ...price, cacheWritePricePer1kMicros: price.cacheWritePricePer1kMicros || undefined });
   try { await reserveBalance({ usageId: usage._id, userId: caller.userId, apiKeyId: caller.kind === "apikey" ? caller.id : null, amountMicros: reserved }); }
   catch (e) {
     await UsageModel.deleteOne({ _id: usage._id });
@@ -117,10 +129,22 @@ export async function POST(req: NextRequest) {
     throw e;
   }
 
-  const channels = await ChannelModel.find({ enabled: true, "models.public": parsed.data.model }).select("+apiKey").sort({ priority: 1 }).lean();
-  if (!channels.length) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "failed", lastError: "no eligible channel" } }); return error("NO_CHANNEL", 503, "没有可用上游渠道"); }
+  // 确定候选渠道：指定 channel 则直连，否则按 priority 自动路由
+  const specifiedChannelName = parsed.data.channel;
+  let candidates;
+  if (specifiedChannelName) {
+    const ch = await ChannelModel.findOne({ name: specifiedChannelName, enabled: true, "models.public": parsed.data.model }).select("+apiKey").lean();
+    candidates = ch ? [ch] : [];
+  } else {
+    candidates = await ChannelModel.find({ enabled: true, "models.public": parsed.data.model }).select("+apiKey").sort({ priority: 1 }).lean();
+  }
+  if (!candidates.length) {
+    await releaseReservation(usage._id);
+    await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "failed", lastError: specifiedChannelName ? `channel "${specifiedChannelName}" not found or missing model` : "no eligible channel" } });
+    return error(specifiedChannelName ? "CHANNEL_NOT_FOUND" : "NO_CHANNEL", specifiedChannelName ? 404 : 503, specifiedChannelName ? `渠道 "${specifiedChannelName}" 不可用或未配置该模型` : "没有可用上游渠道");
+  }
 
-  for (const channel of channels) {
+  for (const channel of candidates) {
     const upstreamModel = channel.models.find((item) => item.public === parsed.data.model)?.upstream ?? parsed.data.model;
     const started = Date.now();
     try {
@@ -136,14 +160,17 @@ export async function POST(req: NextRequest) {
       }
       if (parsed.data.stream && upstream.body) return streamResponse(upstream.body, usage._id, channel, upstreamModel, price, started);
       const json = await upstream.json().catch(() => null);
-      const tokens = json?.usage;
+      const tokens = json?.usage as Record<string, unknown> | undefined;
       if (!tokens) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "unsettled", lastError: "upstream omitted usage" } }); return error("USAGE_UNAVAILABLE", 502, "上游未返回用量，已取消扣费"); }
-      const prompt = tokens.prompt_tokens ?? 0; const completion = tokens.completion_tokens ?? 0;
-      const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros);
+      const prompt = (tokens.prompt_tokens as number) ?? 0; const completion = (tokens.completion_tokens as number) ?? 0;
+      const { cacheRead, cacheWrite } = extractCacheTokens(tokens);
+      const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
+      const charged = chargeMicros(regularInput, price.inputPricePer1kMicros) + chargeMicros(cacheRead, price.cacheReadPricePer1kMicros) + chargeMicros(cacheWrite, price.cacheWritePricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros);
       const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
-      const cost = costConfigured ? chargeMicros(prompt, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0) : 0;
+      const cost = costConfigured ? chargeMicros(regularInput, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(cacheRead, channel.cacheReadCostPer1kTokensMicros ?? 0) + chargeMicros(cacheWrite, channel.cacheWriteCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0) : 0;
       await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" });
-      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros ?? 0, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros ?? 0 });
+      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, cacheReadPricePer1kMicros: price.cacheReadPricePer1kMicros, cacheWritePricePer1kMicros: price.cacheWritePricePer1kMicros, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros ?? 0, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros ?? 0, cacheReadCostPer1kTokensMicros: channel.cacheReadCostPer1kTokensMicros ?? 0, cacheWriteCostPer1kTokensMicros: channel.cacheWriteCostPer1kTokensMicros ?? 0 });
+      if (specifiedChannelName) return NextResponse.json(json);
       return NextResponse.json(json);
     } catch (e) { await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 500) : "network failure", costStatus: "unknown" }); }
   }
@@ -155,7 +182,7 @@ export async function POST(req: NextRequest) {
  *  才判定为死连接。活跃的长输出（如几百行脚本）不会被误杀。 */
 const UPSTREAM_STREAM_IDLE_TIMEOUT_MS = 120_000;
 
-function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number }, started: number) {
+function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null; cacheReadCostPer1kTokensMicros: number | null; cacheWriteCostPer1kTokensMicros: number | null }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number; cacheReadPricePer1kMicros: number; cacheWritePricePer1kMicros: number }, started: number) {
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
     try { for (;;) {
@@ -169,7 +196,7 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
       if (next.done) break; raw += decoder.decode(next.value, { stream: true }); controller.enqueue(next.value);
     }
       raw += decoder.decode();
-      let value: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+      let value: Record<string, unknown> | null = null;
       for (const line of raw.split(/\r?\n/)) {
         if (!line.startsWith("data:")) continue;
         const payload = line.slice(5).trim();
@@ -177,7 +204,18 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
         try { const event = JSON.parse(payload); if (event.usage) value = event.usage; } catch { /* Ignore malformed non-usage events already sent to the client. */ }
       }
       if (!value) { await releaseReservation(usageId); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "unsettled", lastError: "stream omitted usage" } }); }
-      else { const prompt = value.prompt_tokens ?? 0; const completion = value.completion_tokens ?? 0; const charged = chargeMicros(prompt, price.inputPricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros); const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null; const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0; const cost = costConfigured ? chargeMicros(prompt, inputCost) + chargeMicros(completion, outputCost) : 0; await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" }); await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost }); }
+      else {
+        const prompt = (value.prompt_tokens as number) ?? 0; const completion = (value.completion_tokens as number) ?? 0;
+        const { cacheRead, cacheWrite } = extractCacheTokens(value);
+        const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
+        const charged = chargeMicros(regularInput, price.inputPricePer1kMicros) + chargeMicros(cacheRead, price.cacheReadPricePer1kMicros) + chargeMicros(cacheWrite, price.cacheWritePricePer1kMicros) + chargeMicros(completion, price.outputPricePer1kMicros);
+        const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
+        const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0;
+        const cacheReadCost = channel.cacheReadCostPer1kTokensMicros ?? 0; const cacheWriteCost = channel.cacheWriteCostPer1kTokensMicros ?? 0;
+        const cost = costConfigured ? chargeMicros(regularInput, inputCost) + chargeMicros(cacheRead, cacheReadCost) + chargeMicros(cacheWrite, cacheWriteCost) + chargeMicros(completion, outputCost) : 0;
+        await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" });
+        await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, cacheReadPricePer1kMicros: price.cacheReadPricePer1kMicros, cacheWritePricePer1kMicros: price.cacheWritePricePer1kMicros, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost, cacheReadCostPer1kTokensMicros: cacheReadCost, cacheWriteCostPer1kTokensMicros: cacheWriteCost });
+      }
       controller.close();
     } catch (e) { await releaseReservation(usageId); const isIdle = e instanceof Error && e.message.includes("IDLE_TIMEOUT"); const reason = isIdle ? "上游流 120s 无数据（idle 超时），疑似死连接" : (e instanceof Error ? e.message : "上游流读取失败"); await UsageModel.updateOne({ _id: usageId }, { $set: { status: "failed", lastError: reason } }); controller.error(new Error(reason)); }
   }});

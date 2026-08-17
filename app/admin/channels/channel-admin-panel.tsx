@@ -7,15 +7,17 @@ import { cnyMicrosLabel, cnyYuanToMicros, microsToCnyYuan } from "@/providers/bi
 interface ModelMapping { public: string; upstream: string; }
 interface Channel {
   _id: string; name: string; baseUrl: string; protocol: string; models: ModelMapping[]; priority: number;
-  inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null; enabled: boolean; timeoutMs: number;
+  inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null;
+  cacheReadCostPer1kTokensMicros: number | null; cacheWriteCostPer1kTokensMicros: number | null;
+  enabled: boolean; timeoutMs: number;
 }
 interface ChannelForm {
-  name: string; baseUrl: string; apiKey: string; modelsText: string; priority: number; inputCost: number; outputCost: number; timeoutMs: number; enabled: boolean; costsPending: boolean;
+  name: string; baseUrl: string; apiKey: string; modelsText: string; priority: number; inputCost: number; outputCost: number; cacheReadCost: number; cacheWriteCost: number; timeoutMs: number; enabled: boolean; costsPending: boolean;
 }
 
 const defaultMappings = "deepseek-v4-flash=deepseek-v4-flash, deepseek-v4-pro=deepseek-v4-pro";
-const emptyForm = (): ChannelForm => ({ name: "", baseUrl: "", apiKey: "", modelsText: defaultMappings, priority: 10, inputCost: 0, outputCost: 0, timeoutMs: 60000, enabled: true, costsPending: true });
-const formForChannel = (channel: Channel): ChannelForm => ({ name: channel.name, baseUrl: channel.baseUrl, apiKey: "", modelsText: channel.models.map((mapping) => `${mapping.public}=${mapping.upstream}`).join(", "), priority: channel.priority, inputCost: channel.inputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.inputCostPer1kTokensMicros), outputCost: channel.outputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.outputCostPer1kTokensMicros), timeoutMs: channel.timeoutMs, enabled: channel.enabled, costsPending: channel.inputCostPer1kTokensMicros === null });
+const emptyForm = (): ChannelForm => ({ name: "", baseUrl: "", apiKey: "", modelsText: defaultMappings, priority: 10, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, timeoutMs: 60000, enabled: true, costsPending: true });
+const formForChannel = (channel: Channel): ChannelForm => ({ name: channel.name, baseUrl: channel.baseUrl, apiKey: "", modelsText: channel.models.map((mapping) => `${mapping.public}=${mapping.upstream}`).join(", "), priority: channel.priority, inputCost: channel.inputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.inputCostPer1kTokensMicros), outputCost: channel.outputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.outputCostPer1kTokensMicros), cacheReadCost: channel.cacheReadCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheReadCostPer1kTokensMicros), cacheWriteCost: channel.cacheWriteCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheWriteCostPer1kTokensMicros), timeoutMs: channel.timeoutMs, enabled: channel.enabled, costsPending: channel.inputCostPer1kTokensMicros === null });
 
 function toPayload(form: ChannelForm, requireKey: boolean) {
   const models = form.modelsText.split(",").map((item) => item.trim()).filter(Boolean).map((pair) => {
@@ -25,7 +27,10 @@ function toPayload(form: ChannelForm, requireKey: boolean) {
   return {
     name: form.name, baseUrl: form.baseUrl, ...(requireKey ? { apiKey: form.apiKey } : { apiKey: form.apiKey.trim() }), models,
     priority: form.priority, inputCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.inputCost),
-    outputCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.outputCost), enabled: form.enabled, timeoutMs: form.timeoutMs,
+    outputCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.outputCost),
+    cacheReadCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.cacheReadCost),
+    cacheWriteCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.cacheWriteCost),
+    enabled: form.enabled, timeoutMs: form.timeoutMs,
   };
 }
 
@@ -71,6 +76,7 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
       <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted">优先级（小=先试）</span><input type="number" min="0" value={form.priority} onChange={(event) => update("priority", Number(event.target.value))} className="border border-line bg-paper px-3 py-2" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted">超时（毫秒）</span><input type="number" min="1000" max="300000" value={form.timeoutMs} onChange={(event) => update("timeoutMs", Number(event.target.value))} className="border border-line bg-paper px-3 py-2" /></label></div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={(event) => update("enabled", event.target.checked)} /> 启用此渠道</label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.costsPending} onChange={(event) => update("costsPending", event.target.checked)} /> 成本待配置</label>
       <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted">输入成本（元/1k）</span><input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.inputCost} onChange={(event) => update("inputCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted">输出成本（元/1k）</span><input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.outputCost} onChange={(event) => update("outputCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label></div>
+      <div className="grid gap-4 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted">缓存读成本（元/1k）</span><input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheReadCost} onChange={(event) => update("cacheReadCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted">缓存写成本（元/1k）</span><input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheWriteCost} onChange={(event) => update("cacheWriteCost", Number(event.target.value))} className="border border-line bg-paper px-3 py-2 disabled:opacity-50" /></label></div>
       {error ? <p className="text-sm text-red-700">{error}</p> : null}<Button disabled={busy} className="bg-accent text-accent-ink hover:bg-accent-strong self-start disabled:opacity-50">{busy ? "保存中..." : editing ? "保存修改" : "添加渠道"}</Button>
     </form></section>
   </div>;

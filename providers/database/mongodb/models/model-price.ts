@@ -11,6 +11,8 @@ export interface ModelPriceRecord {
   model: string;
   inputPricePer1kMicros: number;
   outputPricePer1kMicros: number;
+  cacheReadPricePer1kMicros: number;
+  cacheWritePricePer1kMicros: number;
   maxInputTokens: number;
   maxOutputTokens: number;
   allowedReasoningEfforts: ReasoningEffort[];
@@ -23,6 +25,8 @@ const schema = new Schema<ModelPriceRecord>({
   model: { type: String, required: true, trim: true, unique: true, maxlength: 120, enum: supportedModels },
   inputPricePer1kMicros: { type: Number, required: true, min: 0 },
   outputPricePer1kMicros: { type: Number, required: true, min: 0 },
+  cacheReadPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
+  cacheWritePricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
   maxInputTokens: { type: Number, required: true, min: 1, max: 2_000_000 },
   maxOutputTokens: { type: Number, required: true, min: 1, max: 500_000 },
   allowedReasoningEfforts: { type: [String], enum: reasoningEfforts, required: true, default: () => [...reasoningEfforts] },

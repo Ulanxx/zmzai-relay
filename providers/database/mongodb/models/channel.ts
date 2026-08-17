@@ -25,6 +25,8 @@ export interface ChannelRecord {
   priority: number;           // 小=优先（便宜的排前）
   inputCostPer1kTokensMicros: number | null;
   outputCostPer1kTokensMicros: number | null;
+  cacheReadCostPer1kTokensMicros: number | null;
+  cacheWriteCostPer1kTokensMicros: number | null;
   enabled: boolean;
   timeoutMs: number;
   createdAt: Date;
@@ -56,6 +58,8 @@ const channelSchema = new Schema<ChannelRecord>(
     priority: { type: Number, required: true, default: 10 },
     inputCostPer1kTokensMicros: { type: Number, default: null, min: 0 },
     outputCostPer1kTokensMicros: { type: Number, default: null, min: 0 },
+    cacheReadCostPer1kTokensMicros: { type: Number, default: null, min: 0 },
+    cacheWriteCostPer1kTokensMicros: { type: Number, default: null, min: 0 },
     enabled: { type: Boolean, required: true, default: true },
     timeoutMs: { type: Number, required: true, default: 60000, min: 1000 },
   },

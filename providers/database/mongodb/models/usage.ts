@@ -25,14 +25,20 @@ export interface UsageRecord {
   status: UsageStatus;
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   totalTokens: number;
   costMicros: number;
   chargedMicros: number;
   grossProfitMicros: number;
   inputPricePer1kMicros: number;
   outputPricePer1kMicros: number;
+  cacheReadPricePer1kMicros: number;
+  cacheWritePricePer1kMicros: number;
   inputCostPer1kTokensMicros: number;
   outputCostPer1kTokensMicros: number;
+  cacheReadCostPer1kTokensMicros: number;
+  cacheWriteCostPer1kTokensMicros: number;
   latencyMs: number;
   lastError: string | null;
   createdAt: Date;
@@ -56,14 +62,20 @@ const usageSchema = new Schema<UsageRecord>(
     status: { type: String, enum: usageStatuses, required: true, default: "received" },
     promptTokens: { type: Number, required: true, default: 0, min: 0 },
     completionTokens: { type: Number, required: true, default: 0, min: 0 },
+    cacheReadTokens: { type: Number, required: true, default: 0, min: 0 },
+    cacheWriteTokens: { type: Number, required: true, default: 0, min: 0 },
     totalTokens: { type: Number, required: true, default: 0, min: 0 },
     costMicros: { type: Number, required: true, default: 0, min: 0 },
     chargedMicros: { type: Number, required: true, default: 0, min: 0 },
     grossProfitMicros: { type: Number, required: true, default: 0 },
     inputPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
     outputPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
+    cacheReadPricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
+    cacheWritePricePer1kMicros: { type: Number, required: true, default: 0, min: 0 },
     inputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
     outputCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
+    cacheReadCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
+    cacheWriteCostPer1kTokensMicros: { type: Number, required: true, default: 0, min: 0 },
     latencyMs: { type: Number, required: true, default: 0, min: 0 },
     lastError: { type: String, default: null },
   },

@@ -34,6 +34,8 @@ export default async function AdminChannelsPage() {
     priority: c.priority,
     inputCostPer1kTokensMicros: c.inputCostPer1kTokensMicros,
     outputCostPer1kTokensMicros: c.outputCostPer1kTokensMicros,
+    cacheReadCostPer1kTokensMicros: c.cacheReadCostPer1kTokensMicros,
+    cacheWriteCostPer1kTokensMicros: c.cacheWriteCostPer1kTokensMicros,
     enabled: c.enabled,
     timeoutMs: c.timeoutMs,
   }));

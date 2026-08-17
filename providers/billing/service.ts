@@ -21,8 +21,11 @@ export function chargeMicros(tokens: number, pricePer1kMicros: number): number {
   return Math.ceil((tokens * pricePer1kMicros) / 1000);
 }
 
-export function maximumChargeMicros(price: { maxInputTokens: number; maxOutputTokens: number; inputPricePer1kMicros: number; outputPricePer1kMicros: number }): number {
-  return chargeMicros(price.maxInputTokens, price.inputPricePer1kMicros) + chargeMicros(price.maxOutputTokens, price.outputPricePer1kMicros);
+export function maximumChargeMicros(price: { maxInputTokens: number; maxOutputTokens: number; inputPricePer1kMicros: number; outputPricePer1kMicros: number; cacheWritePricePer1kMicros?: number }): number {
+  // Reserve using the most expensive input dimension (regular or cache-write).
+  const inputMax = chargeMicros(price.maxInputTokens, price.inputPricePer1kMicros);
+  const cacheWriteMax = price.cacheWritePricePer1kMicros ? chargeMicros(price.maxInputTokens, price.cacheWritePricePer1kMicros) : 0;
+  return Math.max(inputMax, cacheWriteMax) + chargeMicros(price.maxOutputTokens, price.outputPricePer1kMicros);
 }
 
 interface ReserveInput {
@@ -83,13 +86,19 @@ interface Settlement {
   costMicros: number;
   promptTokens: number;
   completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   channelId: Types.ObjectId;
   upstreamModel: string;
   latencyMs: number;
   inputPricePer1kMicros: number;
   outputPricePer1kMicros: number;
+  cacheReadPricePer1kMicros: number;
+  cacheWritePricePer1kMicros: number;
   inputCostPer1kTokensMicros: number;
   outputCostPer1kTokensMicros: number;
+  cacheReadCostPer1kTokensMicros: number;
+  cacheWriteCostPer1kTokensMicros: number;
 }
 
 export async function settleReservation(usageId: Types.ObjectId, settlement: Settlement | null): Promise<void> {
@@ -132,12 +141,17 @@ export async function settleReservation(usageId: Types.ObjectId, settlement: Set
       await UsageModel.updateOne({ _id: usageId }, { $set: {
         status: "completed", channelId: settlement.channelId, upstreamModel: settlement.upstreamModel,
         promptTokens: settlement.promptTokens, completionTokens: settlement.completionTokens,
+        cacheReadTokens: settlement.cacheReadTokens, cacheWriteTokens: settlement.cacheWriteTokens,
         totalTokens: settlement.promptTokens + settlement.completionTokens, costMicros: settlement.costMicros,
         chargedMicros: settlement.chargedMicros, grossProfitMicros: settlement.chargedMicros - settlement.costMicros,
         latencyMs: settlement.latencyMs, inputPricePer1kMicros: settlement.inputPricePer1kMicros,
         outputPricePer1kMicros: settlement.outputPricePer1kMicros,
+        cacheReadPricePer1kMicros: settlement.cacheReadPricePer1kMicros,
+        cacheWritePricePer1kMicros: settlement.cacheWritePricePer1kMicros,
         inputCostPer1kTokensMicros: settlement.inputCostPer1kTokensMicros,
         outputCostPer1kTokensMicros: settlement.outputCostPer1kTokensMicros,
+        cacheReadCostPer1kTokensMicros: settlement.cacheReadCostPer1kTokensMicros,
+        cacheWriteCostPer1kTokensMicros: settlement.cacheWriteCostPer1kTokensMicros,
       }}).session(dbSession);
       await BalanceLedgerModel.create([{
         userId: reservation.userId, kind: "usage_charge", amountMicros: -settlement.chargedMicros,

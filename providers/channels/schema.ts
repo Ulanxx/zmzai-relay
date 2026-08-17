@@ -8,6 +8,8 @@ const channelConfigFields = {
   priority: z.coerce.number().int().min(0),
   inputCostPer1kTokensMicros: z.number().int().min(0).nullable(),
   outputCostPer1kTokensMicros: z.number().int().min(0).nullable(),
+  cacheReadCostPer1kTokensMicros: z.number().int().min(0).nullable().default(null),
+  cacheWriteCostPer1kTokensMicros: z.number().int().min(0).nullable().default(null),
   enabled: z.boolean(),
   timeoutMs: z.number().int().min(1000).max(300000),
 };
