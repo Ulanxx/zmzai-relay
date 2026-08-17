@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input } from "@zmzai/theme";
+import { Badge, Button, Input } from "@zmzai/theme";
 
 interface KeyItem {
   _id: string;
@@ -74,9 +74,7 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
                   <div className="flex items-baseline gap-3">
                     <span className="font-bold text-ink">{k.name}</span>
                     <span className="font-mono text-xs text-muted">{k.prefix}…</span>
-                    <span className={`font-mono text-[0.625rem] uppercase tracking-widest ${k.status === "active" ? "text-success" : "text-red-700"}`}>
-                      {k.status}
-                    </span>
+                    <Badge variant={k.status === "active" ? "success" : "danger"} size="sm">{k.status === "active" ? "active" : "revoked"}</Badge>
                   </div>
                   {k.status === "active" ? (
                     <Button type="button" variant="ghost" size="sm" onClick={() => revoke(k._id)} className="font-mono text-xs text-red-700 underline underline-offset-2">
