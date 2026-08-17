@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Input } from "@zmzai/theme";
 
 interface KeyItem {
   _id: string;
@@ -78,9 +79,9 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
                     </span>
                   </div>
                   {k.status === "active" ? (
-                    <button onClick={() => revoke(k._id)} className="font-mono text-xs text-red-700 underline underline-offset-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => revoke(k._id)} className="font-mono text-xs text-red-700 underline underline-offset-2">
                       吊销
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 <p className="font-mono text-xs text-muted">
@@ -120,9 +121,9 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
               className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-5.6-sol, gpt-5.6-terra" />
           </label>
           {error ? <p className="text-sm text-red-700">{error}</p> : null}
-          <button type="submit" disabled={busy} className="btn-primary self-start disabled:opacity-50">
+          <Button type="submit" disabled={busy} className="bg-accent text-accent-ink hover:bg-accent-strong self-start disabled:opacity-50">
             {busy ? "创建中…" : "创建 Key"}
-          </button>
+          </Button>
         </form>
 
         {newKey ? (
