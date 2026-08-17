@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge } from "@zmzai/theme";
+import { Badge, Icon } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -44,7 +44,7 @@ export default async function ActivityPage() {
       <p className="mt-3 text-sm text-muted">待核查上游成本：{uncertain}</p>
       <div className="mt-8 grid gap-8 xl:grid-cols-2">
         <div>
-          <h2 className="headline text-xl">调用</h2>
+          <h2 className="headline flex items-center gap-2 text-xl"><Icon name="activity" size={16} className="text-accent" />调用</h2>
           <ul className="mt-3 divide-y divide-line border-y border-line">
             {usages.map((item) => {
               const itemAttempts = attemptsByUsage.get(String(item._id)) ?? [];
@@ -66,7 +66,7 @@ export default async function ActivityPage() {
           </ul>
         </div>
         <div>
-          <h2 className="headline text-xl">账本</h2>
+          <h2 className="headline flex items-center gap-2 text-xl"><Icon name="receipt" size={16} className="text-accent" />账本</h2>
           <ul className="mt-3 divide-y divide-line border-y border-line">
             {ledger.map((item) => (
               <li key={String(item._id)} className="flex justify-between gap-3 py-3 text-sm">

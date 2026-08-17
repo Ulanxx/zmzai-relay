@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, CardSpotlight } from "@zmzai/theme";
+import { Badge, CardSpotlight, Icon } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -29,7 +29,7 @@ export default async function ModelsPage() {
             <CardSpotlight key={model.model} radius={240} color="rgba(196, 42, 36, 0.10)">
               <div className="p-5">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="font-mono text-base">{model.model}</h2>
+                  <h2 className="flex items-center gap-2 font-mono text-base"><Icon name="bolt" size={14} className="text-accent" />{model.model}</h2>
                   <Badge variant={model.enabled ? "success" : "outline"} size="sm">{model.enabled ? "已开放" : "已停用"}</Badge>
                   <Badge variant={costReady ? "success" : "warning"} size="sm">{costReady ? "成本已配置" : "成本待配置"}</Badge>
                 </div>

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge } from "@zmzai/theme";
+import { Badge, Icon } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -33,7 +33,7 @@ export default async function UsersPage() {
                 <p className="font-mono text-xs text-muted">{accountUser.email}</p>
               </div>
               <Badge variant={availableMicros > 0 ? "success" : "outline"} size="sm" className="justify-self-start font-mono sm:justify-self-end">{money(availableMicros)}</Badge>
-              <span className="font-mono text-xs text-muted">{tokenCount} active tokens</span>
+              <span className="font-mono text-xs text-muted"><Icon name="key" size={11} className="mr-1 inline text-accent" />{tokenCount} active tokens</span>
             </li>
           );
         })}

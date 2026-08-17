@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, CardSpotlight, Terminal } from "@zmzai/theme";
+import { Badge, CardSpotlight, Icon, Terminal } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -23,7 +23,7 @@ export default async function DocsPage() {
           <CardSpotlight key={model.model} radius={240} color="rgba(196, 42, 36, 0.10)">
             <div className="p-5">
               <div className="flex items-center justify-between gap-3">
-                <p className="font-mono text-sm text-ink">{model.model}</p>
+                <p className="flex items-center gap-2 font-mono text-sm text-ink"><Icon name="bolt" size={13} className="text-accent" />{model.model}</p>
                 <Badge variant="outline" size="sm">{model.allowedReasoningEfforts.join(" · ")}</Badge>
               </div>
               <p className="mt-3 font-mono text-xs text-muted">{model.maxInputTokens.toLocaleString()} in / {model.maxOutputTokens.toLocaleString()} out</p>

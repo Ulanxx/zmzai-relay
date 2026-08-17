@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, CardSpotlight, Input } from "@zmzai/theme";
+import { Badge, Button, CardSpotlight, Icon, Input } from "@zmzai/theme";
 import { cnyYuanToMicros } from "@/providers/billing/currency";
 
 interface Key { _id: string; prefix: string; name: string; status: string; rateLimitPerMinute: number; monthlySpendLimitMicros: number; monthlySpendUsedMicros: number; lastUsedAt: string | null; }
@@ -12,7 +12,7 @@ export function TokenPanel({ initialKeys, models }: { initialKeys: Key[]; models
   return (
     <section className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
       <div className="flex flex-col gap-4">
-        <h2 className="headline text-xl">我的 Token</h2>
+        <h2 className="headline flex items-center gap-2 text-xl"><Icon name="key" size={16} className="text-accent" />我的 Token</h2>
         {keys.length ? <ul className="divide-y divide-line border-y border-line">{keys.map((key) => <li key={key._id} className="flex items-center justify-between gap-4 py-3">
           <div>
             <p className="font-semibold">{key.name} <span className="font-mono text-xs text-muted">{key.prefix}...</span></p>
@@ -20,13 +20,13 @@ export function TokenPanel({ initialKeys, models }: { initialKeys: Key[]; models
           </div>
           <div className="flex items-center gap-3">
             {key.status === "active" ? <Badge variant="success" size="sm">启用</Badge> : <Badge variant="outline" size="sm">已吊销</Badge>}
-            {key.status === "active" ? <Button type="button" variant="ghost" size="sm" onClick={() => revoke(key._id)} className="font-mono text-xs text-red-700 underline">吊销</Button> : null}
+            {key.status === "active" ? <Button type="button" variant="ghost" size="sm" onClick={() => revoke(key._id)} className="flex items-center gap-1 font-mono text-xs text-red-700 underline"><Icon name="trash" size={11} />吊销</Button> : null}
           </div>
         </li>)}</ul> : <p className="text-sm text-muted">创建一个 Token 后即可通过 API 调用模型。</p>}
       </div>
       <CardSpotlight radius={260} color="rgba(196, 42, 36, 0.10)">
         <div className="p-5">
-          <h2 className="headline text-lg">创建 Token</h2>
+          <h2 className="headline flex items-center gap-2 text-lg"><Icon name="plus" size={15} className="text-accent" />创建 Token</h2>
           <form onSubmit={create} className="mt-4 flex flex-col gap-3">
             <Input required value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：本地开发" />
             <Input value={modelsText} onChange={(event) => setModelsText(event.target.value)} className="font-mono text-xs" placeholder="允许模型，逗号分隔（空=全部）" />

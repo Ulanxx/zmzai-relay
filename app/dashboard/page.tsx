@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Badge, CardSpotlight, MovingBorder } from "@zmzai/theme";
+import { Badge, CardSpotlight, Icon, MovingBorder } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -52,21 +52,21 @@ export default async function DashboardPage() {
       <div className="mt-8 grid gap-4 md:grid-cols-3">
         <MovingBorder duration={6} backgroundColor="var(--color-surface)">
           <div className="p-5">
-            <p className="eyebrow">可用余额</p>
+            <div className="flex items-center gap-2"><Icon name="wallet" size={15} className="text-accent" /><p className="eyebrow">可用余额</p></div>
             <p className="mt-2 font-mono text-3xl">{money(availableMicros)}</p>
             <p className="mt-1 text-xs text-muted">随每次调用扣减</p>
           </div>
         </MovingBorder>
         <CardSpotlight radius={220} color="rgba(196, 42, 36, 0.10)">
           <div className="p-5">
-            <p className="eyebrow">近期消费</p>
+            <div className="flex items-center gap-2"><Icon name="trend-up" size={15} className="text-accent" /><p className="eyebrow">近期消费</p></div>
             <p className="mt-2 font-mono text-3xl">{money(charged)}</p>
             <p className="mt-1 text-xs text-muted">最近 {usage.length} 笔调用</p>
           </div>
         </CardSpotlight>
         <CardSpotlight radius={220} color="rgba(196, 42, 36, 0.10)">
           <div className="p-5">
-            <p className="eyebrow">近期成功率</p>
+            <div className="flex items-center gap-2"><Icon name="check-circle" size={15} className="text-accent" /><p className="eyebrow">近期成功率</p></div>
             <p className="mt-2 font-mono text-3xl">{usage.length ? `${Math.round((success / usage.length) * 100)}%` : "-"}</p>
             <p className="mt-1 text-xs text-muted">{success} / {usage.length} 笔成功</p>
           </div>

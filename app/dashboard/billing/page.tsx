@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { Badge, MovingBorder } from "@zmzai/theme";
+import { Badge, Icon, MovingBorder } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -26,6 +26,7 @@ export default async function BillingPage() {
             <p className="eyebrow">余额用尽后</p>
             <p className="mt-3 text-lg">联系「牧之」增加额度</p>
             <p className="mt-4 flex items-center gap-2 font-mono text-xl text-accent-readable">
+              <Icon name="wallet" size={18} />
               微信号：{supportWechat}
               <Badge variant="accent" size="sm">人工充值</Badge>
             </p>

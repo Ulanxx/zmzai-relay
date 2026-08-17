@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, CardSpotlight } from "@zmzai/theme";
+import { Badge, CardSpotlight, Icon } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -22,21 +22,21 @@ export default async function AdminPage() {
     UsageModel.countDocuments({ createdAt: { $gte: since }, status: { $in: ["failed", "unsettled"] } }),
   ]);
   const today = totals[0] ?? { requests: 0, revenue: 0, cost: 0 };
-  const stats: Array<[string, string, string]> = [
-    ["请求", today.requests.toLocaleString(), "过去 24 小时"],
-    ["收入", money(today.revenue), "按调用计费"],
-    ["确认成本", money(today.cost), "上游已确认"],
-    ["异常", String(failed), "失败 + 待结算"],
+  const stats: Array<[string, string, string, "activity" | "trend-up" | "coins" | "alert"]> = [
+    ["请求", today.requests.toLocaleString(), "过去 24 小时", "activity"],
+    ["收入", money(today.revenue), "按调用计费", "trend-up"],
+    ["确认成本", money(today.cost), "上游已确认", "coins"],
+    ["异常", String(failed), "失败 + 待结算", "alert"],
   ];
   return (
     <RelayShell role="admin" userName={user.name}>
       <p className="eyebrow">中转驿 · 运营概览</p>
       <h1 className="headline mt-2 text-4xl">今天的运行情况</h1>
       <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map(([label, value, hint]) => (
+        {stats.map(([label, value, hint, icon]) => (
           <CardSpotlight key={label} radius={220} color="rgba(196, 42, 36, 0.10)">
             <div className="p-5">
-              <p className="eyebrow">{label}</p>
+              <div className="flex items-center gap-2"><Icon name={icon} size={15} className="text-accent" /><p className="eyebrow">{label}</p></div>
               <p className="mt-2 font-mono text-2xl">{value}</p>
               <p className="mt-1 text-xs text-muted">{hint}</p>
             </div>
