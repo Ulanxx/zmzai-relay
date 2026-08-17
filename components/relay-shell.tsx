@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { Wordmark } from "@/components/wordmark";
+import { Logo, Wordmark } from "@zmzai/theme";
 import { LogoutButton } from "@/components/logout-button";
 
 const adminLinks = [["概览", "/admin"], ["模型目录", "/admin/models"], ["渠道", "/admin/channels"], ["用户与余额", "/admin/users"], ["运营调整", "/admin/operations"], ["充值订单", "/admin/orders"], ["调用与账本", "/admin/activity"], ["Token", "/admin/keys"]] as const;
@@ -20,5 +20,5 @@ function NavLink({ label, href, pathname }: { label: string; href: string; pathn
 export function RelayShell({ role, userName, isAdminUser = false, children }: { role: "admin" | "user"; userName: string; isAdminUser?: boolean; children: ReactNode }) {
   const pathname = usePathname() ?? "/";
   const links = role === "admin" ? adminLinks : userLinks;
-  return <main className="min-h-dvh bg-paper"><header className="border-b-2 border-rule"><div className="page-shell flex min-h-16 items-center justify-between gap-4 py-4"><Wordmark /><div className="flex items-center gap-4 font-mono text-xs text-muted"><span>{userName}</span>{role === "admin" ? <Link href="/dashboard" className="hover:text-accent">用户端</Link> : isAdminUser ? <Link href="/admin" className="hover:text-accent">管理后台</Link> : null}<LogoutButton /></div></div></header><div className="page-shell grid gap-8 py-8 lg:grid-cols-[11rem_minmax(0,1fr)]"><nav className="flex gap-4 overflow-x-auto border-b border-line pb-3 font-mono text-xs text-muted lg:flex-col lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">{links.map(([label, href]) => <NavLink key={href} label={label} href={href} pathname={pathname} />)}</nav><section className="min-w-0">{children}</section></div></main>;
+  return <main className="min-h-dvh bg-paper"><header className="border-b-2 border-rule"><div className="page-shell flex min-h-16 items-center justify-between gap-4 py-4"><span className="inline-flex items-center gap-2"><Logo size={22} /><Wordmark /></span><div className="flex items-center gap-4 font-mono text-xs text-muted"><span>{userName}</span>{role === "admin" ? <Link href="/dashboard" className="hover:text-accent">用户端</Link> : isAdminUser ? <Link href="/admin" className="hover:text-accent">管理后台</Link> : null}<LogoutButton /></div></div></header><div className="page-shell grid gap-8 py-8 lg:grid-cols-[11rem_minmax(0,1fr)]"><nav className="flex gap-4 overflow-x-auto border-b border-line pb-3 font-mono text-xs text-muted lg:flex-col lg:border-b-0 lg:border-r lg:pb-0 lg:pr-5">{links.map(([label, href]) => <NavLink key={href} label={label} href={href} pathname={pathname} />)}</nav><section className="min-w-0">{children}</section></div></main>;
 }
