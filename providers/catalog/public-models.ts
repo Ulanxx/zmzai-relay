@@ -23,6 +23,8 @@ export interface PublicChannelModel {
   maxInputTokens: number;
   maxOutputTokens: number;
   allowedReasoningEfforts: string[];
+  featured: boolean;
+  featuredDescription: string;
 }
 
 export interface PublicChannel {
@@ -74,6 +76,8 @@ export async function getPublicChannels(): Promise<PublicChannel[]> {
           maxInputTokens: p.maxInputTokens,
           maxOutputTokens: p.maxOutputTokens,
           allowedReasoningEfforts: p.allowedReasoningEfforts,
+          featured: p.featured,
+          featuredDescription: p.featuredDescription,
         };
       }),
   })).filter((ch) => ch.models.length > 0);
@@ -81,4 +85,41 @@ export async function getPublicChannels(): Promise<PublicChannel[]> {
 
 export function moneyMicros(value: number): string {
   return cnyMicrosLabel(value);
+}
+
+/** ModelSelector 组件所需数据：推荐模型 + 渠道分组。 */
+export interface PublicModelSelectorData {
+  featured: { id: string; name: string; description: string; channel?: string }[];
+  channels: { id: string; name: string; models: { id: string; name: string; channel?: string; meta?: Record<string, string> }[] }[];
+}
+
+export async function getPublicModelSelectorData(): Promise<PublicModelSelectorData> {
+  const channels = await getPublicChannels();
+  // 收集所有 featured 模型（去重，按 priority 排序取第一个渠道）
+  const seen = new Set<string>();
+  const featured: PublicModelSelectorData["featured"] = [];
+  for (const ch of channels) {
+    for (const m of ch.models) {
+      if (m.featured && !seen.has(m.model)) {
+        seen.add(m.model);
+        featured.push({ id: m.model, name: m.model, description: m.featuredDescription, channel: ch.channel });
+      }
+    }
+  }
+  return {
+    featured,
+    channels: channels.map((ch) => ({
+      id: ch.channel,
+      name: ch.channel,
+      models: ch.models.map((m) => ({
+        id: m.model,
+        name: m.model,
+        channel: ch.channel,
+        meta: {
+          input: `${moneyMicros(m.inputPricePer1kMicros)} / 1k`,
+          output: `${moneyMicros(m.outputPricePer1kMicros)} / 1k`,
+        },
+      })),
+    })),
+  };
 }

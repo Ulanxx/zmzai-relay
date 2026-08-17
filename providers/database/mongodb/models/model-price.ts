@@ -16,6 +16,8 @@ export interface ModelPriceRecord {
   maxInputTokens: number;
   maxOutputTokens: number;
   allowedReasoningEfforts: ReasoningEffort[];
+  featured: boolean;
+  featuredDescription: string;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -30,6 +32,8 @@ const schema = new Schema<ModelPriceRecord>({
   maxInputTokens: { type: Number, required: true, min: 1, max: 2_000_000 },
   maxOutputTokens: { type: Number, required: true, min: 1, max: 500_000 },
   allowedReasoningEfforts: { type: [String], enum: reasoningEfforts, required: true, default: () => [...reasoningEfforts] },
+  featured: { type: Boolean, required: true, default: false },
+  featuredDescription: { type: String, required: true, default: "", maxlength: 200 },
   enabled: { type: Boolean, required: true, default: true },
 }, { strict: "throw", timestamps: true });
 
