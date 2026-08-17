@@ -93,16 +93,24 @@ export interface PublicModelSelectorData {
   channels: { id: string; name: string; models: { id: string; name: string; channel?: string; meta?: Record<string, string> }[] }[];
 }
 
-export async function getPublicModelSelectorData(): Promise<PublicModelSelectorData> {
+/** 内部消费方（agent/sandbox）使用的扩展版，含 token 限制和推理强度。 */
+export interface InternalModelSelectorData {
+  featured: { id: string; name: string; description: string; channel?: string; maxInputTokens: number; maxOutputTokens: number; allowedReasoningEfforts: string[] }[];
+  channels: { id: string; name: string; models: { id: string; name: string; channel?: string; meta?: Record<string, string>; maxInputTokens: number; maxOutputTokens: number; allowedReasoningEfforts: string[] }[] }[];
+}
+
+export async function getInternalModelSelectorData(): Promise<InternalModelSelectorData> {
   const channels = await getPublicChannels();
-  // 收集所有 featured 模型（去重，按 priority 排序取第一个渠道）
   const seen = new Set<string>();
-  const featured: PublicModelSelectorData["featured"] = [];
+  const featured: InternalModelSelectorData["featured"] = [];
   for (const ch of channels) {
     for (const m of ch.models) {
       if (m.featured && !seen.has(m.model)) {
         seen.add(m.model);
-        featured.push({ id: m.model, name: m.model, description: m.featuredDescription, channel: ch.channel });
+        featured.push({
+          id: m.model, name: m.model, description: m.featuredDescription, channel: ch.channel,
+          maxInputTokens: m.maxInputTokens, maxOutputTokens: m.maxOutputTokens, allowedReasoningEfforts: m.allowedReasoningEfforts,
+        });
       }
     }
   }
@@ -115,11 +123,22 @@ export async function getPublicModelSelectorData(): Promise<PublicModelSelectorD
         id: m.model,
         name: m.model,
         channel: ch.channel,
-        meta: {
-          input: `${moneyMicros(m.inputPricePer1kMicros)} / 1k`,
-          output: `${moneyMicros(m.outputPricePer1kMicros)} / 1k`,
-        },
+        meta: { input: `${moneyMicros(m.inputPricePer1kMicros)} / 1k`, output: `${moneyMicros(m.outputPricePer1kMicros)} / 1k` },
+        maxInputTokens: m.maxInputTokens,
+        maxOutputTokens: m.maxOutputTokens,
+        allowedReasoningEfforts: m.allowedReasoningEfforts,
       })),
+    })),
+  };
+}
+
+export async function getPublicModelSelectorData(): Promise<PublicModelSelectorData> {
+  const data = await getInternalModelSelectorData();
+  return {
+    featured: data.featured.map(({ id, name, description, channel }) => ({ id, name, description, channel })),
+    channels: data.channels.map((ch) => ({
+      id: ch.id, name: ch.name,
+      models: ch.models.map(({ id, name, channel, meta }) => ({ id, name, channel, meta })),
     })),
   };
 }

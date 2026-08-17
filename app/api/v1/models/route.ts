@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { resolveApiKey } from "@/providers/auth/apikey";
 import { getCurrentUser } from "@/providers/auth/session";
-import { getPublicModels } from "@/providers/catalog/public-models";
+import { getInternalModelSelectorData, getPublicModels } from "@/providers/catalog/public-models";
 
 export const dynamic = "force-dynamic";
 
@@ -24,15 +24,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "需要有效的 API Token 或登录会话", code: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  const models = (await getPublicModels())
-    .filter((model) => model.routable)
-    .filter((model) => !caller.allowedModels || caller.allowedModels.includes(model.model))
-    .map(({ model, maxInputTokens, maxOutputTokens, allowedReasoningEfforts }) => ({
-      model,
-      maxInputTokens,
-      maxOutputTokens,
-      allowedReasoningEfforts,
-    }));
+  const [models, modelSelectorData] = await Promise.all([
+    getPublicModels().then((all) =>
+      all
+        .filter((model) => model.routable)
+        .filter((model) => !caller.allowedModels || caller.allowedModels.includes(model.model))
+        .map(({ model, maxInputTokens, maxOutputTokens, allowedReasoningEfforts }) => ({ model, maxInputTokens, maxOutputTokens, allowedReasoningEfforts }))
+    ),
+    getInternalModelSelectorData(),
+  ]);
 
-  return NextResponse.json({ models });
+  return NextResponse.json({ models, modelSelectorData });
 }

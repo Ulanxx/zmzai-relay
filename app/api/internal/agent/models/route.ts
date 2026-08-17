@@ -4,7 +4,7 @@ import { z } from "zod";
 import { UserModel } from "@zmzai/db";
 
 import { isAgentServiceAuthorization } from "@/providers/auth/agent-service";
-import { getPublicModels } from "@/providers/catalog/public-models";
+import { getInternalModelSelectorData } from "@/providers/catalog/public-models";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 
 export const runtime = "nodejs";
@@ -25,8 +25,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ code: "UNAUTHENTICATED", error: "用户不可用" }, { status: 401 });
   }
 
-  const models = (await getPublicModels())
-    .filter((model) => model.routable)
-    .map(({ model, maxInputTokens, maxOutputTokens, allowedReasoningEfforts }) => ({ model, maxInputTokens, maxOutputTokens, allowedReasoningEfforts }));
-  return NextResponse.json({ models }, { headers: { "cache-control": "no-store" } });
+  const data = await getInternalModelSelectorData();
+  return NextResponse.json({ modelSelectorData: data }, { headers: { "cache-control": "no-store" } });
 }
