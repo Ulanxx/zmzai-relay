@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@zmzai/db':
-        specifier: git+https://github.com/Ulanxx/zmzai-db.git
-        version: https://codeload.github.com/Ulanxx/zmzai-db/tar.gz/54b495dbe8cb642bc2d1b233f4ee13902e15a2d4(mongoose@8.24.1)
+        specifier: ^0.1.0
+        version: 0.1.0(mongoose@8.24.1)
       '@zmzai/theme':
         specifier: ^0.5.3
         version: 0.5.3(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
@@ -782,9 +782,8 @@ packages:
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
 
-  '@zmzai/db@https://codeload.github.com/Ulanxx/zmzai-db/tar.gz/54b495dbe8cb642bc2d1b233f4ee13902e15a2d4':
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/Ulanxx/zmzai-db/tar.gz/54b495dbe8cb642bc2d1b233f4ee13902e15a2d4}
-    version: 0.1.0
+  '@zmzai/db@0.1.0':
+    resolution: {integrity: sha512-Evf/98xZqxHIunyJwDHEw9CbnxG2JJiafOlXBjOQ1Xg6pSu2liKVXJ21tIb1nBf3ufZYUsWDD+R9+nVdTFD+rg==}
     peerDependencies:
       mongoose: ^8.24.0
 
@@ -2091,7 +2090,7 @@ snapshots:
 
   '@ungap/structured-clone@1.3.3': {}
 
-  '@zmzai/db@https://codeload.github.com/Ulanxx/zmzai-db/tar.gz/54b495dbe8cb642bc2d1b233f4ee13902e15a2d4(mongoose@8.24.1)':
+  '@zmzai/db@0.1.0(mongoose@8.24.1)':
     dependencies:
       mongoose: 8.24.1
 

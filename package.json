@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@zmzai/db": "git+https://github.com/Ulanxx/zmzai-db.git",
+    "@zmzai/db": "^0.1.0",
     "@zmzai/theme": "^0.5.3",
     "mongoose": "8.24.1",
     "next": "15.5.21",
