@@ -90,13 +90,15 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
           <ul className="divide-y divide-line rounded-lg border border-line bg-bg">
             {channels.map((channel) => (
               <li key={channel._id} className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
+                {/* 名称区 min-w-0 允许收缩换行，操作区 shrink-0 恒在行右侧——
+                    否则长名称会把「编辑/测试」挤到下一行，看起来像部分渠道没有操作按钮 */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="font-medium">{channel.name}</span>
                     <span className="font-mono text-xs text-muted">P{channel.priority}</span>
                     <Badge variant={channel.enabled ? "success" : "outline"} size="sm">{channel.enabled ? "启用" : "停用"}</Badge>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex shrink-0 gap-3">
                     <Button type="button" variant="ghost" size="sm" onClick={() => beginEdit(channel)}>编辑</Button>
                     <Button type="button" variant="ghost" size="sm" onClick={() => testChannel(channel._id)}>测试</Button>
                   </div>
