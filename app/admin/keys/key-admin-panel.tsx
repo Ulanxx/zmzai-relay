@@ -61,75 +61,80 @@ export function KeyAdminPanel({ initialKeys }: { initialKeys: KeyItem[] }) {
   }
 
   return (
-    <div className="grid gap-12 lg:grid-cols-[1fr_1.1fr]">
-      <section className="flex flex-col gap-4">
-        <h2 className="headline text-xl">已分发（{keys.length}）</h2>
+    <div className="grid gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] xl:items-start">
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">已分发（{keys.length}）</h2>
         {keys.length === 0 ? (
-          <p className="text-sm text-muted">还没有 key。右侧创建第一个。</p>
+          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">还没有 key，先在右侧创建第一个。</p>
         ) : (
-          <ul className="flex flex-col divide-y divide-line border-y border-line">
-            {keys.map((k) => (
-              <li key={k._id} className="flex flex-col gap-1.5 py-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div className="flex items-baseline gap-3">
-                    <span className="font-bold text-ink">{k.name}</span>
-                    <span className="font-mono text-xs text-muted">{k.prefix}…</span>
-                    <Badge variant={k.status === "active" ? "success" : "danger"} size="sm">{k.status === "active" ? "active" : "revoked"}</Badge>
-                  </div>
-                  {k.status === "active" ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => revoke(k._id)} className="font-mono text-xs text-red-700 underline underline-offset-2">
-                      吊销
-                    </Button>
-                  ) : null}
-                </div>
-                <p className="font-mono text-xs text-muted">
-                  {k.quotaTotalTokens > 0 ? `${k.quotaUsedTokens.toLocaleString()} / ${k.quotaTotalTokens.toLocaleString()} tok` : "不限额度"}
-                  {" · "}{k.rateLimitPerMinute}/min
-                  {k.allowedModels.length > 0 ? ` · ${k.allowedModels.join(",")}` : " · 全部模型"}
-                </p>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto rounded-lg border border-line bg-bg">
+            <table className="w-full min-w-[36rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+                  <th className="px-4 py-2.5 font-normal">名称</th>
+                  <th className="px-4 py-2.5 font-normal">状态</th>
+                  <th className="px-4 py-2.5 font-normal">额度</th>
+                  <th className="px-4 py-2.5 text-right font-normal">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {keys.map((k) => (
+                  <tr key={k._id} className="align-top">
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{k.name}</p>
+                      <p className="font-mono text-xs text-muted">{k.prefix}… · {k.rateLimitPerMinute}/min</p>
+                      <p className="font-mono text-xs text-muted">{k.allowedModels.length > 0 ? k.allowedModels.join(", ") : "全部模型"}</p>
+                    </td>
+                    <td className="px-4 py-3"><Badge variant={k.status === "active" ? "success" : "danger"} size="sm">{k.status === "active" ? "生效" : "已吊销"}</Badge></td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted">
+                      {k.quotaTotalTokens > 0 ? `${k.quotaUsedTokens.toLocaleString()} / ${k.quotaTotalTokens.toLocaleString()} tok` : "不限"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {k.status === "active" ? (
+                        <Button type="button" variant="danger" size="sm" onClick={() => revoke(k._id)}>吊销</Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="headline text-xl">创建 Key</h2>
-        <form onSubmit={createKey} className="flex flex-col gap-4 border border-line bg-surface p-6">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">名称（备注用途）</span>
-            <input required value={name} onChange={(e) => setName(e.target.value)}
-              className="border border-line bg-paper px-3 py-2" placeholder="muzhi 后端 / 张三" />
-          </label>
-          <div className="grid grid-cols-2 gap-4">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">额度（tokens，0=不限）</span>
-              <input type="number" value={quota} onChange={(e) => setQuota(Number(e.target.value))}
-                className="border border-line bg-paper px-3 py-2" />
+        <div className="rounded-lg border border-line bg-bg p-5">
+          <h2 className="text-lg font-semibold">创建 Key</h2>
+          <form onSubmit={createKey} className="mt-4 flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-xs text-muted">名称（备注用途）</span>
+              <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="muzhi 后端 / 张三" />
             </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted">限流（次/分钟）</span>
-              <input type="number" value={rpm} onChange={(e) => setRpm(Number(e.target.value))}
-                className="border border-line bg-paper px-3 py-2" />
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-xs text-muted">额度（tokens，0=不限）</span>
+                <Input type="number" value={quota} onChange={(e) => setQuota(Number(e.target.value))} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-xs text-muted">限流（次/分钟）</span>
+                <Input type="number" value={rpm} onChange={(e) => setRpm(Number(e.target.value))} />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="text-xs text-muted">允许模型（逗号分隔，空=全部）</span>
+              <Input value={models} onChange={(e) => setModels(e.target.value)} className="font-mono text-xs" placeholder="gpt-5.6-sol, gpt-5.6-terra" />
             </label>
-          </div>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-muted">允许模型（逗号分隔，空=全部）</span>
-            <input value={models} onChange={(e) => setModels(e.target.value)}
-              className="border border-line bg-paper px-3 py-2 font-mono text-xs" placeholder="gpt-5.6-sol, gpt-5.6-terra" />
-          </label>
-          {error ? <p className="text-sm text-red-700">{error}</p> : null}
-          <Button type="submit" disabled={busy} className="bg-accent text-accent-ink hover:bg-accent-strong self-start disabled:opacity-50">
-            {busy ? "创建中…" : "创建 Key"}
-          </Button>
-        </form>
+            {error ? <p className="text-sm text-danger">{error}</p> : null}
+            <Button type="submit" disabled={busy} className="self-start">{busy ? "创建中…" : "创建 Key"}</Button>
+          </form>
+        </div>
 
         {newKey ? (
-          <div className="border border-accent bg-surface p-6">
-            <p className="eyebrow mb-2">新 Key（只显示这一次，立刻复制保存）</p>
-            <code className="block break-all font-mono text-sm text-accent-readable">{newKey}</code>
-            <p className="mt-3 text-xs text-muted">调用方式：</p>
-            <pre className="mt-1 overflow-x-auto font-mono text-xs text-ink/80">{`curl https://m.zmzai.cloud/api/v1/chat/completions \\
+          <div className="rounded-lg border border-accent bg-bg p-5">
+            <p className="font-mono text-xs text-muted">新 Key 只显示这一次，立刻复制保存</p>
+            <code className="mt-2 block break-all font-mono text-sm text-accent-readable">{newKey}</code>
+            <p className="mt-4 text-xs text-muted">调用方式：</p>
+            <pre className="mt-1 overflow-x-auto rounded-md bg-surface p-3 font-mono text-xs text-ink-2">{`curl https://m.zmzai.cloud/api/v1/chat/completions \\
   -H "Authorization: Bearer ${newKey}" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"gpt-5.6-terra","reasoning_effort":"high","messages":[{"role":"user","content":"你好"}]}'`}</pre>

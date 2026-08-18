@@ -8,8 +8,8 @@ import { Icon, Navbar } from "@zmzai/theme";
 import type { IconName } from "@zmzai/theme";
 import { LogoutButton } from "@/components/logout-button";
 
-const adminLinks: Array<[string, string, IconName]> = [["概览", "/admin", "home"], ["模型目录", "/admin/models", "grid"], ["渠道", "/admin/channels", "link"], ["用户与余额", "/admin/users", "users"], ["运营调整", "/admin/operations", "sliders"], ["充值订单", "/admin/orders", "receipt"], ["调用与账本", "/admin/activity", "activity"], ["Token", "/admin/keys", "key"]] as const;
-const userLinks: Array<[string, string, IconName]> = [["概览", "/dashboard", "home"], ["模型", "/dashboard/models", "grid"], ["额度支持", "/dashboard/billing", "wallet"], ["我的 Token", "/dashboard/keys", "key"], ["用量与账单", "/dashboard/activity", "activity"], ["调用文档", "/dashboard/docs", "book"]] as const;
+const adminLinks: Array<[string, string, IconName]> = [["概览", "/admin", "home"], ["模型与价格", "/admin/models", "grid"], ["渠道与路由", "/admin/channels", "link"], ["用户与余额", "/admin/users", "users"], ["运营调整", "/admin/operations", "sliders"], ["充值订单", "/admin/orders", "receipt"], ["调用与账本", "/admin/activity", "activity"], ["全部 Token", "/admin/keys", "key"]] as const;
+const userLinks: Array<[string, string, IconName]> = [["概览", "/dashboard", "home"], ["API Keys", "/dashboard/keys", "key"], ["用量与账单", "/dashboard/activity", "activity"], ["额度充值", "/dashboard/billing", "wallet"], ["API 文档", "/docs", "book"]] as const;
 
 /** 段根（/admin、/dashboard）只在完全相等时高亮，避免子页面全部点亮“概览”。 */
 function NavLink({ label, href, icon, pathname }: { label: string; href: string; icon: IconName; pathname: string }) {
@@ -27,7 +27,7 @@ export function RelayShell({ role, userName, isAdminUser = false, children }: { 
   const pathname = usePathname() ?? "/";
   const links = role === "admin" ? adminLinks : userLinks;
   return (
-    <main className="min-h-dvh bg-paper">
+    <main className="min-h-dvh bg-bg">
       <Navbar
         sublabel="relay"
         brandHref="/"

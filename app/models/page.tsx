@@ -1,8 +1,26 @@
-import Link from "next/link";
-import { ChannelDirectory } from "@/components/channel-directory";
-import { Wordmark } from "@/components/wordmark";
+import { ModelTable } from "@/components/model-table";
+import { PublicShell } from "@/components/public-shell";
 import { getPublicChannels } from "@/providers/catalog/public-models";
 import { connectMongo } from "@/providers/database/mongodb/connection";
+import { getCurrentUser } from "@/providers/auth/session";
 
 export const dynamic = "force-dynamic";
-export default async function ModelsPage() { await connectMongo(); const channels = await getPublicChannels(); return <main className="page-shell min-h-dvh py-8"><header className="flex items-center justify-between border-b-2 border-rule pb-5"><Link href="/"><Wordmark /></Link><nav className="flex gap-5 font-mono text-xs text-muted"><Link href="/docs">API 文档</Link><Link href="/dashboard">进入控制台 →</Link></nav></header><section className="py-14"><p className="eyebrow">渠道目录</p><h1 className="headline mt-3 text-5xl">先选渠道，再选模型。</h1><p className="mt-4 max-w-xl text-lg text-ink/70">渠道决定上游路径和成本。价格、缓存折扣和调用方式都在这里。</p><div className="mt-10"><ChannelDirectory channels={channels} /></div></section></main>; }
+
+export const metadata = { title: "模型 · Relay" };
+
+export default async function ModelsPage() {
+  const user = await getCurrentUser();
+  await connectMongo();
+  const channels = await getPublicChannels();
+  return (
+    <PublicShell user={user} isAdminUser={user?.role === "admin"}>
+      <h1 className="text-3xl font-semibold tracking-tight">模型</h1>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-2">
+        价格为每 1K token 的人民币单价，缓存读取享受折扣价。调用时无需指定渠道，系统按优先级自动路由；如需精确控制，可在请求体传入 <code className="font-mono text-xs">channel</code> 参数。
+      </p>
+      <div className="mt-8">
+        <ModelTable channels={channels} />
+      </div>
+    </PublicShell>
+  );
+}

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, Icon } from "@zmzai/theme";
+import { Badge } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -19,25 +19,38 @@ export default async function UsersPage() {
   const [users, accounts, keys] = await Promise.all([UserModel.find().sort({ createdAt: -1 }).lean(), BalanceAccountModel.find().lean(), ApiKeyModel.find().lean()]);
   return (
     <RelayShell role="admin" userName={user.name}>
-      <p className="eyebrow">用户与余额</p>
-      <h1 className="headline mt-2 text-4xl">账户总览</h1>
-      <ul className="mt-8 divide-y divide-line border-y border-line">
-        {users.map((accountUser) => {
-          const account = accounts.find((item) => String(item.userId) === String(accountUser._id));
-          const tokenCount = keys.filter((key) => String(key.userId) === String(accountUser._id) && key.status === "active").length;
-          const availableMicros = Math.max(0, (account?.balanceMicros ?? 0) - (account?.reservedMicros ?? 0));
-          return (
-            <li key={String(accountUser._id)} className="grid gap-2 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-              <div>
-                <p>{accountUser.name}</p>
-                <p className="font-mono text-xs text-muted">{accountUser.email}</p>
-              </div>
-              <Badge variant={availableMicros > 0 ? "success" : "outline"} size="sm" className="justify-self-start font-mono sm:justify-self-end">{money(availableMicros)}</Badge>
-              <span className="font-mono text-xs text-muted"><Icon name="key" size={11} className="mr-1 inline text-accent" />{tokenCount} active tokens</span>
-            </li>
-          );
-        })}
-      </ul>
+      <h1 className="text-2xl font-semibold tracking-tight">用户与余额</h1>
+      <p className="mt-2 text-sm text-ink-2">全部账号的余额与 API Key 情况。调整余额请到「运营调整」。</p>
+      <div className="mt-6 overflow-x-auto rounded-lg border border-line">
+        <table className="w-full min-w-[36rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+              <th className="px-4 py-2.5 font-normal">用户</th>
+              <th className="px-4 py-2.5 text-right font-normal">可用余额</th>
+              <th className="px-4 py-2.5 text-right font-normal">活跃 Key</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {users.map((accountUser) => {
+              const account = accounts.find((item) => String(item.userId) === String(accountUser._id));
+              const tokenCount = keys.filter((key) => String(key.userId) === String(accountUser._id) && key.status === "active").length;
+              const availableMicros = Math.max(0, (account?.balanceMicros ?? 0) - (account?.reservedMicros ?? 0));
+              return (
+                <tr key={String(accountUser._id)}>
+                  <td className="px-4 py-3">
+                    <p className="font-medium">{accountUser.name}</p>
+                    <p className="font-mono text-xs text-muted">{accountUser.email}</p>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Badge variant={availableMicros > 0 ? "success" : "outline"} size="sm" className="font-mono">{money(availableMicros)}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-muted">{tokenCount}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </RelayShell>
   );
 }

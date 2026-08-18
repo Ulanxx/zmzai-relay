@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, Icon } from "@zmzai/theme";
+import { Badge } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -22,6 +22,14 @@ const statusLabel = (status: string): string => {
   if (status === "unsettled") return "待结算";
   return status;
 };
+const kindLabel: Record<string, string> = {
+  welcome_credit: "新人体验额度",
+  purchase_credit: "充值到账",
+  admin_credit: "管理员加款",
+  admin_debit: "管理员扣减",
+  usage_charge: "调用扣费",
+  refund: "退款",
+};
 export const dynamic = "force-dynamic";
 export default async function ActivityPage() {
   const user = await getCurrentUser();
@@ -39,42 +47,69 @@ export default async function ActivityPage() {
   }
   return (
     <RelayShell role="admin" userName={user.name}>
-      <p className="eyebrow">调用与账本</p>
-      <h1 className="headline mt-2 text-4xl">可追溯的运行记录</h1>
-      <p className="mt-3 text-sm text-muted">待核查上游成本：{uncertain}</p>
-      <div className="mt-8 grid gap-8 xl:grid-cols-2">
+      <h1 className="text-2xl font-semibold tracking-tight">调用与账本</h1>
+      <p className="mt-2 text-sm text-ink-2">全站最近的调用、渠道尝试与余额流水。待核查上游成本：{uncertain} 笔。</p>
+      <div className="mt-6 grid gap-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] xl:items-start">
         <div>
-          <h2 className="headline flex items-center gap-2 text-xl"><Icon name="activity" size={16} className="text-accent" />调用</h2>
-          <ul className="mt-3 divide-y divide-line border-y border-line">
-            {usages.map((item) => {
-              const itemAttempts = attemptsByUsage.get(String(item._id)) ?? [];
-              return (
-                <li key={String(item._id)} className="py-3 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <span className="font-mono">{item.model}</span>
-                    <span className="font-mono text-muted">{money(item.chargedMicros)}</span>
-                  </div>
-                  <p className="mt-1 flex items-center gap-2">
-                    <Badge variant={statusVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge>
-                    <span className="font-mono text-xs text-muted">{item.requestId} · {item.upstreamModel} · {item.totalTokens} tok</span>
-                  </p>
-                  {item.lastError ? <p className="mt-1 text-xs text-accent-readable">{item.lastError}</p> : null}
-                  {itemAttempts.map((attempt) => <p key={String(attempt._id)} className="mt-1 text-xs text-muted">渠道 {String(attempt.channelId)} · {attempt.status} · {attempt.latencyMs}ms{attempt.error ? ` · ${attempt.error}` : ""}</p>)}
-                </li>
-              );
-            })}
-          </ul>
+          <h2 className="mb-3 text-lg font-semibold">调用</h2>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full min-w-[34rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+                  <th className="px-4 py-2.5 font-normal">模型</th>
+                  <th className="px-4 py-2.5 font-normal">状态</th>
+                  <th className="px-4 py-2.5 text-right font-normal">Tokens</th>
+                  <th className="px-4 py-2.5 text-right font-normal">费用</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {usages.map((item) => {
+                  const itemAttempts = attemptsByUsage.get(String(item._id)) ?? [];
+                  return (
+                    <tr key={String(item._id)} className="align-top">
+                      <td className="px-4 py-3">
+                        <p className="font-mono text-xs">{item.model}</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-muted">{item.requestId} · → {item.upstreamModel}</p>
+                        {item.lastError ? <p className="mt-0.5 text-[11px] text-danger">{item.lastError}</p> : null}
+                        {itemAttempts.map((attempt) => (
+                          <p key={String(attempt._id)} className="mt-0.5 font-mono text-[11px] text-muted">
+                            渠道尝试 · {attempt.status} · {attempt.latencyMs}ms{attempt.error ? ` · ${attempt.error}` : ""}
+                          </p>
+                        ))}
+                      </td>
+                      <td className="px-4 py-3"><Badge variant={statusVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge></td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-muted">{item.totalTokens.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{money(item.chargedMicros)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
         <div>
-          <h2 className="headline flex items-center gap-2 text-xl"><Icon name="receipt" size={16} className="text-accent" />账本</h2>
-          <ul className="mt-3 divide-y divide-line border-y border-line">
-            {ledger.map((item) => (
-              <li key={String(item._id)} className="flex justify-between gap-3 py-3 text-sm">
-                <span>{item.kind}</span>
-                <span className="font-mono">{money(item.amountMicros)}</span>
-              </li>
-            ))}
-          </ul>
+          <h2 className="mb-3 text-lg font-semibold">账本</h2>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+                  <th className="px-4 py-2.5 font-normal">类型</th>
+                  <th className="px-4 py-2.5 text-right font-normal">金额</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {ledger.map((item) => (
+                  <tr key={String(item._id)}>
+                    <td className="px-4 py-3">
+                      <p className="text-xs">{kindLabel[item.kind] ?? item.kind}</p>
+                      <p className="font-mono text-[11px] text-muted">{new Date(item.createdAt).toLocaleString("zh-CN")}</p>
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono text-xs ${item.amountMicros >= 0 ? "" : "text-danger"}`}>{money(item.amountMicros)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </RelayShell>

@@ -1,15 +1,12 @@
 @import "tailwindcss";
 @source "../node_modules/@zmzai/theme/src/**/*.{ts,tsx}";
 
-/* zmzai cloud 牧之 — tokens.css is the source of truth.
-   Locked via Hallmark Study; see design.md. Warm paper, warm ink,
-   seal-red accent. No Geist, no acid green, no centered AI slop. */
+/* Relay 主题：纯白底 + 荧光绿 accent（与 zmzai cloud 全品牌统一）。
+   MiSans 主字体 + JetBrains Mono 数据字体，@zmzai/theme 组件依赖完整 token 集。 */
 
 @theme {
-  /* zmzai.cloud 主应用主题（hub tokens 同源，Hallmark Study 锁定）：
-     纯白 + 荧光绿（与 hub 统一），衬线正文 + 等宽系统字体，锐利编辑风圆角。
-     完整 token 集——@zmzai/theme 组件依赖 bg-bg/ink-2/ink-3/radius-sm 等，
-     缺一个对应工具类就生成不出来（组件会"裸奔"）。 */
+  /* 完整 token 集——@zmzai/theme 组件依赖 bg-bg/ink-2/ink-3/radius-sm 等，
+     缺一个对应工具类就生成不出来（组件会“裸奔”）。 */
   --color-bg:            oklch(0.995 0.002 90);
   --color-surface:       oklch(0.98 0.004 90);
   --color-surface-2:     oklch(0.95 0.006 88);
@@ -20,6 +17,8 @@
   --color-line-strong:   oklch(0.15 0.010 30);
   --color-accent:        oklch(0.78 0.220 142);
   --color-accent-ink:    oklch(0.15 0.010 30);
+  /* 白底上可读的荧光绿（文字/链接用，比 accent 暗一档） */
+  --color-accent-readable: oklch(0.55 0.19 145);
   --color-success:       oklch(0.72 0.180 145);
   --color-danger:        oklch(0.55 0.200 25);
   --color-warning:       oklch(0.80 0.150 90);
@@ -28,8 +27,8 @@
   --color-dark-ink:      #FAFAFA;
   --color-dark-line:     #27272A;
 
-  --font-sans: "MiSans", "Noto Serif SC", "Source Han Serif SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-sans: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Songti SC", "STSong", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
   --radius-sm:    2px;
@@ -93,7 +92,7 @@
   body {
     min-height: 100dvh;
     margin: 0;
-    background: var(--color-paper);
+    background: var(--color-bg);
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-size: 1rem;
@@ -118,49 +117,11 @@
   }
 }
 
-/* Recurring motif: hard rule line on section open. Left-aligned editorial. */
+/* Recurring motif: page content shell. */
 @layer components {
   .page-shell {
     width: min(100% - 2.5rem, 64rem);
     margin-inline: auto;
-  }
-
-  .rule-top {
-    border-top: 2px solid var(--color-rule);
-  }
-
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-
-  .headline {
-    font-family: var(--font-serif);
-    font-weight: 700;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
-  }
-
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: var(--color-accent);
-    color: var(--color-accent-ink);
-    padding: 0.5rem 1rem;
-    border-radius: 0;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    transition: background var(--animate-dur-base) var(--ease-out);
-  }
-
-  .btn-primary:hover {
-    background: var(--color-accent-strong);
   }
 }
 

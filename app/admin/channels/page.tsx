@@ -9,7 +9,7 @@ import { ChannelAdminPanel } from "./channel-admin-panel";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "渠道配置 · 中转驿 admin" };
+export const metadata = { title: "渠道与路由 · Relay admin" };
 
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
 
@@ -40,5 +40,11 @@ export default async function AdminChannelsPage() {
     timeoutMs: c.timeoutMs,
   }));
 
-  return <RelayShell role="admin" userName={user.name}><p className="eyebrow">中转驿 · 上游配置</p><h1 className="headline mt-2 text-4xl">渠道路由</h1><p className="mt-3 max-w-2xl text-ink/70">Token 不绑定渠道；系统按模型映射、启用状态与优先级转发，并在失败时尝试下一个上游。</p><div className="mt-8"><ChannelAdminPanel initialChannels={safe} /></div></RelayShell>;
+  return (
+    <RelayShell role="admin" userName={user.name}>
+      <h1 className="text-2xl font-semibold tracking-tight">渠道与路由</h1>
+      <p className="mt-2 max-w-2xl text-sm text-ink-2">Token 不绑定渠道；系统按模型映射、启用状态与优先级转发，失败时自动尝试下一个上游。</p>
+      <div className="mt-8"><ChannelAdminPanel initialChannels={safe} /></div>
+    </RelayShell>
+  );
 }

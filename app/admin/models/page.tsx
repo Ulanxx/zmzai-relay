@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Badge, CardSpotlight, Icon } from "@zmzai/theme";
+import { Badge } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
@@ -17,45 +17,69 @@ export default async function ModelsPage() {
   await connectMongo();
   const [models, channels] = await Promise.all([ModelPriceModel.find({ model: { $in: supportedModels } }).sort({ model: 1 }).lean(), ChannelModel.find().sort({ priority: 1 }).lean()]);
   const priceMap = new Map(models.map((m) => [m.model, m]));
+  const rows = channels.flatMap((channel) =>
+    channel.models
+      .filter((mapping) => priceMap.has(mapping.public))
+      .map((mapping) => ({ channel, mapping, model: priceMap.get(mapping.public)! })),
+  );
   return (
     <RelayShell role="admin" userName={user.name}>
-      <p className="eyebrow">渠道目录</p>
-      <h1 className="headline mt-2 text-4xl">按渠道查看模型</h1>
-      <p className="mt-3 text-ink/70">价格和推理强度在这里管理；上游映射只在渠道页维护。</p>
-      <div className="mt-8 flex flex-col gap-8">
-        {channels.map((channel) => {
-          const channelModels = channel.models.filter((mapping) => priceMap.has(mapping.public));
-          if (channelModels.length === 0) return null;
-          const costReady = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
-          return (
-            <section key={String(channel._id)}>
-              <div className="mb-4 flex items-baseline gap-3">
-                <h2 className="headline text-xl">{channel.name}</h2>
-                <span className="font-mono text-xs text-muted">P{channel.priority}</span>
-                <Badge variant={channel.enabled ? "success" : "outline"} size="sm">{channel.enabled ? "启用" : "停用"}</Badge>
-                <Badge variant={costReady ? "success" : "warning"} size="sm">{costReady ? "成本已配置" : "成本待配置"}</Badge>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                {channelModels.map((mapping) => {
-                  const model = priceMap.get(mapping.public)!;
-                  return (
-                    <CardSpotlight key={`${channel.name}-${mapping.public}`} radius={240} color="rgba(196, 42, 36, 0.10)">
-                      <div className="p-5">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <h3 className="flex items-center gap-2 font-mono text-base"><Icon name="bolt" size={14} className="text-accent" />{mapping.public}</h3>
-                          <Badge variant={model.enabled ? "success" : "outline"} size="sm">{model.enabled ? "已开放" : "已停用"}</Badge>
-                        </div>
-                        <p className="mt-2 font-mono text-xs text-muted">→ {mapping.upstream}</p>
-                        <p className="mt-2 text-sm text-muted">推理：{model.allowedReasoningEfforts.join(" · ")}</p>
-                        <p className="mt-2 font-mono text-xs text-muted">入 {money(model.inputPricePer1kMicros)} / 1k · 出 {money(model.outputPricePer1kMicros)} / 1k</p>
-                      </div>
-                    </CardSpotlight>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+      <h1 className="text-2xl font-semibold tracking-tight">模型与价格</h1>
+      <p className="mt-2 text-sm text-ink-2">价格与推理强度在这里管理；上游映射在「渠道与路由」维护。</p>
+
+      <h2 className="mt-8 text-lg font-semibold">渠道</h2>
+      <div className="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table className="w-full min-w-[32rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+              <th className="px-4 py-2.5 font-normal">渠道</th>
+              <th className="px-4 py-2.5 font-normal">状态</th>
+              <th className="px-4 py-2.5 font-normal">优先级</th>
+              <th className="px-4 py-2.5 font-normal">成本</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {channels.map((channel) => {
+              const costReady = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
+              return (
+                <tr key={String(channel._id)}>
+                  <td className="px-4 py-3 font-medium">{channel.name}</td>
+                  <td className="px-4 py-3"><Badge variant={channel.enabled ? "success" : "outline"} size="sm">{channel.enabled ? "启用" : "停用"}</Badge></td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted">P{channel.priority}</td>
+                  <td className="px-4 py-3"><Badge variant={costReady ? "success" : "warning"} size="sm">{costReady ? "已配置" : "待配置"}</Badge></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <h2 className="mt-10 text-lg font-semibold">模型价目</h2>
+      <div className="mt-3 overflow-x-auto rounded-lg border border-line">
+        <table className="w-full min-w-[48rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+              <th className="px-4 py-2.5 font-normal">模型</th>
+              <th className="px-4 py-2.5 font-normal">渠道</th>
+              <th className="px-4 py-2.5 font-normal">状态</th>
+              <th className="px-4 py-2.5 font-normal">推理强度</th>
+              <th className="px-4 py-2.5 text-right font-normal">输入 / 1K</th>
+              <th className="px-4 py-2.5 text-right font-normal">输出 / 1K</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {rows.map(({ channel, mapping, model }) => (
+              <tr key={`${channel.name}-${mapping.public}`}>
+                <td className="px-4 py-3 font-mono text-xs">{mapping.public}</td>
+                <td className="px-4 py-3 font-mono text-xs text-muted">{channel.name}</td>
+                <td className="px-4 py-3"><Badge variant={model.enabled ? "success" : "outline"} size="sm">{model.enabled ? "已开放" : "已停用"}</Badge></td>
+                <td className="px-4 py-3 font-mono text-xs text-muted">{model.allowedReasoningEfforts.join(" · ")}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs">{money(model.inputPricePer1kMicros)}</td>
+                <td className="px-4 py-3 text-right font-mono text-xs">{money(model.outputPricePer1kMicros)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </RelayShell>
   );
