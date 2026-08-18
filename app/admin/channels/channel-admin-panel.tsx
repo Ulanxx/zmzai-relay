@@ -81,69 +81,79 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
   const update = <K extends keyof ChannelForm>(key: K, value: ChannelForm[K]) => setForm((previous) => ({ ...previous, [key]: value }));
 
   return (
-    <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] xl:items-start">
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">已配置渠道（{channels.length}）</h2>
-        {channels.length === 0 ? (
-          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">还没有渠道，先在右侧添加第一个上游。</p>
+    <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr] lg:items-start">
+      <div>
+        {channels.length ? (
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full min-w-[44rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
+                  <th className="px-4 py-2.5 font-normal">渠道</th>
+                  <th className="px-4 py-2.5 font-normal">优先级</th>
+                  <th className="px-4 py-2.5 font-normal">模型</th>
+                  <th className="px-4 py-2.5 font-normal">成本 / 1k</th>
+                  <th className="px-4 py-2.5 font-normal">状态</th>
+                  <th className="px-4 py-2.5" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {channels.map((channel) => (
+                  <tr key={channel._id} className="align-top transition-colors hover:bg-surface">
+                    <td className="px-4 py-3">
+                      <p className="font-medium">{channel.name}</p>
+                      <p className="break-all font-mono text-xs text-muted">{channel.baseUrl}</p>
+                      {testResult[channel._id] ? <p className="mt-1 font-mono text-xs text-accent-readable">{testResult[channel._id]}</p> : null}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted">P{channel.priority}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted">{channel.models.map((mapping) => (mapping.public === mapping.upstream ? mapping.public : `${mapping.public}→${mapping.upstream}`)).join(" · ")}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted">
+                      {channel.inputCostPer1kTokensMicros === null ? "待配置" : `${cnyMicrosLabel(channel.inputCostPer1kTokensMicros, 4)} / ${cnyMicrosLabel(channel.outputCostPer1kTokensMicros ?? 0, 4)}`}
+                      {Object.keys(channel.modelCosts ?? {}).length > 0 ? <span className="block">覆盖 {Object.keys(channel.modelCosts).length} 个模型</span> : null}
+                    </td>
+                    <td className="px-4 py-3"><Badge variant={channel.enabled ? "success" : "outline"} size="sm">{channel.enabled ? "启用" : "停用"}</Badge></td>
+                    <td className="px-4 py-3 text-right">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => beginEdit(channel)}>编辑</Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => testChannel(channel._id)}>测试</Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <ul className="divide-y divide-line rounded-lg border border-line bg-bg">
-            {channels.map((channel) => (
-              <li key={channel._id} className="p-4">
-                {/* 名称区 min-w-0 允许收缩换行，操作区 shrink-0 恒在行右侧——
-                    否则长名称会把「编辑/测试」挤到下一行，看起来像部分渠道没有操作按钮 */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="font-medium">{channel.name}</span>
-                    <span className="font-mono text-xs text-muted">P{channel.priority}</span>
-                    <Badge variant={channel.enabled ? "success" : "outline"} size="sm">{channel.enabled ? "启用" : "停用"}</Badge>
-                  </div>
-                  <div className="flex shrink-0 gap-3">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => beginEdit(channel)}>编辑</Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => testChannel(channel._id)}>测试</Button>
-                  </div>
-                </div>
-                <p className="mt-2 break-all font-mono text-xs text-muted">{channel.baseUrl}</p>
-                <p className="mt-1 font-mono text-xs text-muted">{channel.models.map((mapping) => `${mapping.public} → ${mapping.upstream}`).join(" · ")}</p>
-                <p className="mt-1 text-xs text-muted">{channel.inputCostPer1kTokensMicros === null ? "成本待配置" : `成本 ${cnyMicrosLabel(channel.inputCostPer1kTokensMicros, 4)} / ${cnyMicrosLabel(channel.outputCostPer1kTokensMicros ?? 0, 4)} / 1k`}{Object.keys(channel.modelCosts ?? {}).length > 0 ? ` · 模型级覆盖 ${modelCostsText(channel.modelCosts)}` : ""}</p>
-                {testResult[channel._id] ? <p className="mt-2 font-mono text-xs text-accent-readable">{testResult[channel._id]}</p> : null}
-              </li>
-            ))}
-          </ul>
+          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">还没有渠道，先在右侧添加第一个上游。</p>
         )}
-      </section>
+      </div>
 
-      <section className="rounded-lg border border-line bg-bg p-5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">{editing ? `编辑 ${editing.name}` : "添加渠道"}</h2>
+      <div className="rounded-lg border border-line bg-bg p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">{editing ? `编辑 ${editing.name}` : "添加渠道"}</h2>
           {editing ? <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>取消</Button> : null}
         </div>
-        <form onSubmit={save} className="mt-5 flex flex-col gap-4">
-          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">名称</span><Input required value={form.name} onChange={(event) => update("name", event.target.value)} /></label>
-          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">Base URL</span><Input required type="url" value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} className="font-mono text-xs" placeholder="https://api.example.com/v1" /></label>
-          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">上游 Key{editing ? "（留空则保持不变）" : ""}</span><Input required={!editing} value={form.apiKey} onChange={(event) => update("apiKey", event.target.value)} placeholder={editing ? "不回显；仅填写时替换" : "sk-..."} /></label>
-          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">模型映射（对外名=上游名，逗号分隔）</span><Input required value={form.modelsText} onChange={(event) => update("modelsText", event.target.value)} className="font-mono text-xs" /></label>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">优先级（小=先试）</span><Input type="number" min="0" value={form.priority} onChange={(event) => update("priority", Number(event.target.value))} /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">超时（毫秒）</span><Input type="number" min="1000" max="300000" value={form.timeoutMs} onChange={(event) => update("timeoutMs", Number(event.target.value))} /></label>
+        <form onSubmit={save} className="mt-4 flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">名称</span><Input required value={form.name} onChange={(event) => update("name", event.target.value)} /></label>
+          <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">Base URL</span><Input required type="url" value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} className="font-mono text-xs" placeholder="https://api.example.com/v1" /></label>
+          <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">上游 Key{editing ? "（留空则保持不变）" : ""}</span><Input required={!editing} value={form.apiKey} onChange={(event) => update("apiKey", event.target.value)} placeholder={editing ? "不回显；仅填写时替换" : "sk-..."} /></label>
+          <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">模型映射（对外名=上游名，逗号分隔）</span><Input required value={form.modelsText} onChange={(event) => update("modelsText", event.target.value)} className="font-mono text-xs" /></label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">优先级（小=先试）</span><Input type="number" min="0" value={form.priority} onChange={(event) => update("priority", Number(event.target.value))} /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">超时（毫秒）</span><Input type="number" min="1000" max="300000" value={form.timeoutMs} onChange={(event) => update("timeoutMs", Number(event.target.value))} /></label>
           </div>
-          <div className="flex flex-wrap gap-6 text-sm">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={form.enabled} onChange={(event) => update("enabled", event.target.checked)} /> 启用此渠道</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={form.costsPending} onChange={(event) => update("costsPending", event.target.checked)} /> 成本待配置</label>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={(event) => update("enabled", event.target.checked)} /> 启用</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.costsPending} onChange={(event) => update("costsPending", event.target.checked)} /> 成本待配置</label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">输入成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.inputCost} onChange={(event) => update("inputCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">输出成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.outputCost} onChange={(event) => update("outputCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">输入成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.inputCost} onChange={(event) => update("inputCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">输出成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.outputCost} onChange={(event) => update("outputCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">缓存读成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheReadCost} onChange={(event) => update("cacheReadCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
+            <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">缓存写成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheWriteCost} onChange={(event) => update("cacheWriteCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">缓存读成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheReadCost} onChange={(event) => update("cacheReadCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">缓存写成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheWriteCost} onChange={(event) => update("cacheWriteCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
-          </div>
-          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">模型级成本覆盖（模型=输入/输出 元/1k，逗号分隔；同渠道内模型单价不同时填，优先于渠道级）</span><Input value={form.modelCostsText} onChange={(event) => update("modelCostsText", event.target.value)} className="font-mono text-xs" placeholder="deepseek-v4-flash=0.1/0.2, deepseek-v4-pro=0.3/0.6" /></label>
+          <label className="flex flex-col gap-1.5"><span className="text-xs text-muted">模型级成本覆盖（模型=输入/输出 元/1k，逗号分隔；同渠道内模型单价不同时填，优先于渠道级）</span><Input value={form.modelCostsText} onChange={(event) => update("modelCostsText", event.target.value)} className="font-mono text-xs" placeholder="deepseek-v4-flash=0.1/0.2, deepseek-v4-pro=0.3/0.6" /></label>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <Button disabled={busy} className="self-start">{busy ? "保存中..." : editing ? "保存修改" : "添加渠道"}</Button>
         </form>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }
