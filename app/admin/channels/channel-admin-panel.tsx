@@ -81,8 +81,9 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
   const update = <K extends keyof ChannelForm>(key: K, value: ChannelForm[K]) => setForm((previous) => ({ ...previous, [key]: value }));
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr] lg:items-start">
+    <div className="flex flex-col gap-6">
       <div>
+        {/* 渠道表 6 列，侧栏布局下左列放不下 44rem——上下结构全宽展示，避免横向滚动条 */}
         {channels.length ? (
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[44rem] border-collapse text-sm">
@@ -121,11 +122,11 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
             </table>
           </div>
         ) : (
-          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">还没有渠道，先在右侧添加第一个上游。</p>
+          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">还没有渠道，先在下方添加第一个上游。</p>
         )}
       </div>
 
-      <div className="rounded-lg border border-line bg-bg p-5">
+      <div className="max-w-2xl rounded-lg border border-line bg-bg p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">{editing ? `编辑 ${editing.name}` : "添加渠道"}</h2>
           {editing ? <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>取消</Button> : null}
@@ -154,6 +155,6 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
           <Button disabled={busy} className="self-start">{busy ? "保存中..." : editing ? "保存修改" : "添加渠道"}</Button>
         </form>
       </div>
-    </section>
+    </div>
   );
 }
