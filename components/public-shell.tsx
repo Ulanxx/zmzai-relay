@@ -49,7 +49,8 @@ export function PublicShell({
         <Link href="/models" className={navItemClass(pathname.startsWith("/models"))}>模型</Link>
         <Link href="/docs" className={navItemClass(pathname.startsWith("/docs"))}>API 文档</Link>
       </Navbar>
-      <main className="page-shell w-full flex-1 py-10">{children}</main>
+      {/* 不加 w-full：utilities 层会覆盖 .page-shell（components 层）的限宽，导致内容贴边 */}
+      <main className="page-shell flex-1 py-10">{children}</main>
       <footer className="border-t border-line">
         <div className="page-shell flex items-center justify-between py-6 font-mono text-xs text-muted">
           <span>relay · zmzai cloud</span>
