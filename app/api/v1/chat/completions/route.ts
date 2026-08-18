@@ -39,7 +39,8 @@ const chatSchema = z.object({
 type Caller = { kind: "apikey" | "session" | "sandbox_key" | "agent_service"; id: string; userId: string; label: string; allowedModels: string[] | null; rpm: number | null; taskRunId: string | null };
 function error(code: string, status: number, message: string) { return NextResponse.json({ error: message, code }, { status }); }
 
-/** 从上游 usage 中提取 cache token 数（兼容 Anthropic 顶层字段和 OpenAI 嵌套格式）。 */
+/** 从上游 usage 中提取 cache token 数（兼容 Anthropic 顶层字段、OpenAI 嵌套格式
+ *  与 DeepSeek 原生 prompt_cache_hit_tokens）。 */
 function extractCacheTokens(tokens: Record<string, unknown>): { cacheRead: number; cacheWrite: number } {
   let cacheRead = 0;
   let cacheWrite = 0;
@@ -47,6 +48,7 @@ function extractCacheTokens(tokens: Record<string, unknown>): { cacheRead: numbe
   if (typeof tokens.cache_creation_input_tokens === "number") cacheWrite = tokens.cache_creation_input_tokens;
   const details = tokens.prompt_tokens_details as Record<string, unknown> | undefined;
   if (typeof details?.cached_tokens === "number") cacheRead = details.cached_tokens;
+  if (typeof tokens.prompt_cache_hit_tokens === "number") cacheRead = tokens.prompt_cache_hit_tokens;
   return { cacheRead, cacheWrite };
 }
 
