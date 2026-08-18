@@ -12,8 +12,8 @@ importers:
         specifier: git+https://github.com/Ulanxx/zmzai-db.git
         version: https://codeload.github.com/Ulanxx/zmzai-db/tar.gz/54b495dbe8cb642bc2d1b233f4ee13902e15a2d4(mongoose@8.24.1)
       '@zmzai/theme':
-        specifier: ^0.5.2
-        version: 0.5.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: ^0.5.3
+        version: 0.5.3(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       mongoose:
         specifier: 8.24.1
         version: 8.24.1
@@ -788,8 +788,8 @@ packages:
     peerDependencies:
       mongoose: ^8.24.0
 
-  '@zmzai/theme@0.5.2':
-    resolution: {integrity: sha512-G8UVyLWNKLGmLO/9xWwY/hdYKmF1hB/+LfCHSxMSVyH7MC1LXAjelKfleYGvZf3Q/I80mJ6uul7ecTcPsXE9Ug==}
+  '@zmzai/theme@0.5.3':
+    resolution: {integrity: sha512-zIG0syejqbgtarqcjOdUxcs2G511KIZ0smHgAY3r3xKhGY4MfpCScCsLDzaOHM4GXFCEIWotfRzy9uNPtKjosw==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -2095,7 +2095,7 @@ snapshots:
     dependencies:
       mongoose: 8.24.1
 
-  '@zmzai/theme@0.5.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
+  '@zmzai/theme@0.5.3(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)':
     dependencies:
       '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@radix-ui/react-dropdown-menu': 2.1.24(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
