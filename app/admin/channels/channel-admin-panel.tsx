@@ -5,19 +5,34 @@ import { Badge, Button, Input } from "@zmzai/theme";
 import { cnyMicrosLabel, cnyYuanToMicros, microsToCnyYuan } from "@/providers/billing/currency";
 
 interface ModelMapping { public: string; upstream: string; }
+interface ModelCostEntry { inputCostPer1kTokensMicros: number; outputCostPer1kTokensMicros: number; cacheReadCostPer1kTokensMicros?: number; cacheWriteCostPer1kTokensMicros?: number; }
 interface Channel {
   _id: string; name: string; baseUrl: string; protocol: string; models: ModelMapping[]; priority: number;
   inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null;
   cacheReadCostPer1kTokensMicros: number | null; cacheWriteCostPer1kTokensMicros: number | null;
+  modelCosts: Record<string, ModelCostEntry>;
   enabled: boolean; timeoutMs: number;
 }
 interface ChannelForm {
-  name: string; baseUrl: string; apiKey: string; modelsText: string; priority: number; inputCost: number; outputCost: number; cacheReadCost: number; cacheWriteCost: number; timeoutMs: number; enabled: boolean; costsPending: boolean;
+  name: string; baseUrl: string; apiKey: string; modelsText: string; priority: number; inputCost: number; outputCost: number; cacheReadCost: number; cacheWriteCost: number; modelCostsText: string; timeoutMs: number; enabled: boolean; costsPending: boolean;
 }
 
 const defaultMappings = "deepseek-v4-flash=deepseek-v4-flash, deepseek-v4-pro=deepseek-v4-pro";
-const emptyForm = (): ChannelForm => ({ name: "", baseUrl: "", apiKey: "", modelsText: defaultMappings, priority: 10, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, timeoutMs: 60000, enabled: true, costsPending: true });
-const formForChannel = (channel: Channel): ChannelForm => ({ name: channel.name, baseUrl: channel.baseUrl, apiKey: "", modelsText: channel.models.map((mapping) => `${mapping.public}=${mapping.upstream}`).join(", "), priority: channel.priority, inputCost: channel.inputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.inputCostPer1kTokensMicros), outputCost: channel.outputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.outputCostPer1kTokensMicros), cacheReadCost: channel.cacheReadCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheReadCostPer1kTokensMicros), cacheWriteCost: channel.cacheWriteCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheWriteCostPer1kTokensMicros), timeoutMs: channel.timeoutMs, enabled: channel.enabled, costsPending: channel.inputCostPer1kTokensMicros === null });
+const emptyForm = (): ChannelForm => ({ name: "", baseUrl: "", apiKey: "", modelsText: defaultMappings, priority: 10, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, modelCostsText: "", timeoutMs: 60000, enabled: true, costsPending: true });
+const modelCostsText = (modelCosts: Record<string, ModelCostEntry>) => Object.entries(modelCosts ?? {}).map(([modelName, entry]) => `${modelName}=${microsToCnyYuan(entry.inputCostPer1kTokensMicros)}/${microsToCnyYuan(entry.outputCostPer1kTokensMicros)}`).join(", ");
+const formForChannel = (channel: Channel): ChannelForm => ({ name: channel.name, baseUrl: channel.baseUrl, apiKey: "", modelsText: channel.models.map((mapping) => `${mapping.public}=${mapping.upstream}`).join(", "), priority: channel.priority, inputCost: channel.inputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.inputCostPer1kTokensMicros), outputCost: channel.outputCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.outputCostPer1kTokensMicros), cacheReadCost: channel.cacheReadCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheReadCostPer1kTokensMicros), cacheWriteCost: channel.cacheWriteCostPer1kTokensMicros === null ? 0 : microsToCnyYuan(channel.cacheWriteCostPer1kTokensMicros), modelCostsText: modelCostsText(channel.modelCosts), timeoutMs: channel.timeoutMs, enabled: channel.enabled, costsPending: channel.inputCostPer1kTokensMicros === null });
+
+/** 解析「模型=输入/输出」文本（元/1k）；格式不合法的条目直接丢弃，保存前由服务端 zod 兜底。 */
+function parseModelCosts(text: string): Record<string, ModelCostEntry> {
+  const result: Record<string, ModelCostEntry> = {};
+  for (const entry of text.split(/[\n,]/).map((item) => item.trim()).filter(Boolean)) {
+    const [modelName, costs] = entry.split("=").map((item) => item.trim());
+    const [input, output] = (costs ?? "").split("/").map((item) => Number(item.trim()));
+    if (!modelName || !Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) continue;
+    result[modelName] = { inputCostPer1kTokensMicros: cnyYuanToMicros(input), outputCostPer1kTokensMicros: cnyYuanToMicros(output) };
+  }
+  return result;
+}
 
 function toPayload(form: ChannelForm, requireKey: boolean) {
   const models = form.modelsText.split(",").map((item) => item.trim()).filter(Boolean).map((pair) => {
@@ -30,6 +45,7 @@ function toPayload(form: ChannelForm, requireKey: boolean) {
     outputCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.outputCost),
     cacheReadCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.cacheReadCost),
     cacheWriteCostPer1kTokensMicros: form.costsPending ? null : cnyYuanToMicros(form.cacheWriteCost),
+    modelCosts: parseModelCosts(form.modelCostsText),
     enabled: form.enabled, timeoutMs: form.timeoutMs,
   };
 }
@@ -87,7 +103,7 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
                 </div>
                 <p className="mt-2 break-all font-mono text-xs text-muted">{channel.baseUrl}</p>
                 <p className="mt-1 font-mono text-xs text-muted">{channel.models.map((mapping) => `${mapping.public} → ${mapping.upstream}`).join(" · ")}</p>
-                <p className="mt-1 text-xs text-muted">{channel.inputCostPer1kTokensMicros === null ? "成本待配置" : `成本 ${cnyMicrosLabel(channel.inputCostPer1kTokensMicros, 4)} / ${cnyMicrosLabel(channel.outputCostPer1kTokensMicros ?? 0, 4)} / 1k`}</p>
+                <p className="mt-1 text-xs text-muted">{channel.inputCostPer1kTokensMicros === null ? "成本待配置" : `成本 ${cnyMicrosLabel(channel.inputCostPer1kTokensMicros, 4)} / ${cnyMicrosLabel(channel.outputCostPer1kTokensMicros ?? 0, 4)} / 1k`}{Object.keys(channel.modelCosts ?? {}).length > 0 ? ` · 模型级覆盖 ${modelCostsText(channel.modelCosts)}` : ""}</p>
                 {testResult[channel._id] ? <p className="mt-2 font-mono text-xs text-accent-readable">{testResult[channel._id]}</p> : null}
               </li>
             ))}
@@ -121,6 +137,7 @@ export function ChannelAdminPanel({ initialChannels }: { initialChannels: Channe
             <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">缓存读成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheReadCost} onChange={(event) => update("cacheReadCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
             <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">缓存写成本（元/1k）</span><Input disabled={form.costsPending} type="number" min="0" step="0.0001" value={form.cacheWriteCost} onChange={(event) => update("cacheWriteCost", Number(event.target.value))} className="disabled:opacity-50" /></label>
           </div>
+          <label className="flex flex-col gap-1.5 text-sm"><span className="text-xs text-muted">模型级成本覆盖（模型=输入/输出 元/1k，逗号分隔；同渠道内模型单价不同时填，优先于渠道级）</span><Input value={form.modelCostsText} onChange={(event) => update("modelCostsText", event.target.value)} className="font-mono text-xs" placeholder="deepseek-v4-flash=0.1/0.2, deepseek-v4-pro=0.3/0.6" /></label>
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           <Button disabled={busy} className="self-start">{busy ? "保存中..." : editing ? "保存修改" : "添加渠道"}</Button>
         </form>

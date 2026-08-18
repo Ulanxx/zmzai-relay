@@ -11,7 +11,7 @@ import { UserModel } from "@zmzai/db";
 import { chargeMicros, maximumChargeMicros, reserveBalance, releaseReservation, settleReservation, BillingError } from "@/providers/billing/service";
 import { connectMongo } from "@/providers/database/mongodb/connection";
 import { ChannelAttemptModel } from "@/providers/database/mongodb/models/channel-attempt";
-import { ChannelModel } from "@/providers/database/mongodb/models/channel";
+import { ChannelModel, resolveChannelCosts, type ModelCostOverride } from "@/providers/database/mongodb/models/channel";
 import { ModelPriceModel, reasoningEfforts, supportedModels } from "@/providers/database/mongodb/models/model-price";
 import { RateLimitBucketModel } from "@/providers/database/mongodb/models/rate-limit";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
@@ -169,7 +169,7 @@ export async function POST(req: NextRequest) {
         await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: `HTTP ${upstream.status}: ${details}`, costStatus: "not_charged" });
         continue;
       }
-      if (parsed.data.stream && upstream.body) return streamResponse(upstream.body, usage._id, channel, upstreamModel, price, started);
+      if (parsed.data.stream && upstream.body) return streamResponse(upstream.body, usage._id, channel, upstreamModel, parsed.data.model, price, started);
       const json = await upstream.json().catch(() => null);
       const tokens = json?.usage as Record<string, unknown> | undefined;
       if (!tokens) { await releaseReservation(usage._id); await UsageModel.updateOne({ _id: usage._id }, { $set: { status: "unsettled", lastError: "upstream omitted usage" } }); return error("USAGE_UNAVAILABLE", 502, "上游未返回用量，已取消扣费"); }
@@ -178,10 +178,10 @@ export async function POST(req: NextRequest) {
       const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
       const cachePrices = effectiveCachePrices(price);
       const charged = chargeMicros(regularInput, price.inputPricePer1kMicros) + chargeMicros(cacheRead, cachePrices.cacheRead) + chargeMicros(cacheWrite, cachePrices.cacheWrite) + chargeMicros(completion, price.outputPricePer1kMicros);
-      const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
-      const cost = costConfigured ? chargeMicros(regularInput, channel.inputCostPer1kTokensMicros ?? 0) + chargeMicros(cacheRead, channel.cacheReadCostPer1kTokensMicros ?? 0) + chargeMicros(cacheWrite, channel.cacheWriteCostPer1kTokensMicros ?? 0) + chargeMicros(completion, channel.outputCostPer1kTokensMicros ?? 0) : 0;
-      await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" });
-      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, cacheReadPricePer1kMicros: cachePrices.cacheRead, cacheWritePricePer1kMicros: cachePrices.cacheWrite, inputCostPer1kTokensMicros: channel.inputCostPer1kTokensMicros ?? 0, outputCostPer1kTokensMicros: channel.outputCostPer1kTokensMicros ?? 0, cacheReadCostPer1kTokensMicros: channel.cacheReadCostPer1kTokensMicros ?? 0, cacheWriteCostPer1kTokensMicros: channel.cacheWriteCostPer1kTokensMicros ?? 0 });
+      const channelCosts = resolveChannelCosts(channel, parsed.data.model);
+      const cost = channelCosts ? chargeMicros(regularInput, channelCosts.inputCostPer1kTokensMicros) + chargeMicros(cacheRead, channelCosts.cacheReadCostPer1kTokensMicros) + chargeMicros(cacheWrite, channelCosts.cacheWriteCostPer1kTokensMicros) + chargeMicros(completion, channelCosts.outputCostPer1kTokensMicros) : 0;
+      await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: channelCosts ? "known" : "unknown" });
+      await settleReservation(usage._id, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, cacheReadPricePer1kMicros: cachePrices.cacheRead, cacheWritePricePer1kMicros: cachePrices.cacheWrite, inputCostPer1kTokensMicros: channelCosts?.inputCostPer1kTokensMicros ?? 0, outputCostPer1kTokensMicros: channelCosts?.outputCostPer1kTokensMicros ?? 0, cacheReadCostPer1kTokensMicros: channelCosts?.cacheReadCostPer1kTokensMicros ?? 0, cacheWriteCostPer1kTokensMicros: channelCosts?.cacheWriteCostPer1kTokensMicros ?? 0 });
       if (specifiedChannelName) return NextResponse.json(json);
       return NextResponse.json(json);
     } catch (e) { await ChannelAttemptModel.create({ usageId: usage._id, channelId: channel._id, upstreamModel, status: "failed", latencyMs: Date.now() - started, error: e instanceof Error ? e.message.slice(0, 500) : "network failure", costStatus: "unknown" }); }
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
  *  才判定为死连接。活跃的长输出（如几百行脚本）不会被误杀。 */
 const UPSTREAM_STREAM_IDLE_TIMEOUT_MS = 120_000;
 
-function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null; cacheReadCostPer1kTokensMicros: number | null; cacheWriteCostPer1kTokensMicros: number | null }, upstreamModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number; cacheReadPricePer1kMicros: number; cacheWritePricePer1kMicros: number }, started: number) {
+function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongoose").Types.ObjectId, channel: { _id: import("mongoose").Types.ObjectId; inputCostPer1kTokensMicros: number | null; outputCostPer1kTokensMicros: number | null; cacheReadCostPer1kTokensMicros: number | null; cacheWriteCostPer1kTokensMicros: number | null; modelCosts: Record<string, ModelCostOverride> }, upstreamModel: string, publicModel: string, price: { inputPricePer1kMicros: number; outputPricePer1kMicros: number; cacheReadPricePer1kMicros: number; cacheWritePricePer1kMicros: number }, started: number) {
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const reader = body.getReader(); const decoder = new TextDecoder(); let raw = "";
     try { for (;;) {
@@ -222,11 +222,11 @@ function streamResponse(body: ReadableStream<Uint8Array>, usageId: import("mongo
         const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
         const cachePrices = effectiveCachePrices(price);
         const charged = chargeMicros(regularInput, price.inputPricePer1kMicros) + chargeMicros(cacheRead, cachePrices.cacheRead) + chargeMicros(cacheWrite, cachePrices.cacheWrite) + chargeMicros(completion, price.outputPricePer1kMicros);
-        const costConfigured = channel.inputCostPer1kTokensMicros !== null && channel.outputCostPer1kTokensMicros !== null;
-        const inputCost = channel.inputCostPer1kTokensMicros ?? 0; const outputCost = channel.outputCostPer1kTokensMicros ?? 0;
-        const cacheReadCost = channel.cacheReadCostPer1kTokensMicros ?? 0; const cacheWriteCost = channel.cacheWriteCostPer1kTokensMicros ?? 0;
-        const cost = costConfigured ? chargeMicros(regularInput, inputCost) + chargeMicros(cacheRead, cacheReadCost) + chargeMicros(cacheWrite, cacheWriteCost) + chargeMicros(completion, outputCost) : 0;
-        await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: costConfigured ? "known" : "unknown" });
+        const channelCosts = resolveChannelCosts(channel, publicModel);
+        const inputCost = channelCosts?.inputCostPer1kTokensMicros ?? 0; const outputCost = channelCosts?.outputCostPer1kTokensMicros ?? 0;
+        const cacheReadCost = channelCosts?.cacheReadCostPer1kTokensMicros ?? 0; const cacheWriteCost = channelCosts?.cacheWriteCostPer1kTokensMicros ?? 0;
+        const cost = channelCosts ? chargeMicros(regularInput, inputCost) + chargeMicros(cacheRead, cacheReadCost) + chargeMicros(cacheWrite, cacheWriteCost) + chargeMicros(completion, outputCost) : 0;
+        await ChannelAttemptModel.create({ usageId, channelId: channel._id, upstreamModel, status: "completed", latencyMs: Date.now() - started, error: null, costStatus: channelCosts ? "known" : "unknown" });
         await settleReservation(usageId, { chargedMicros: charged, costMicros: cost, promptTokens: prompt, completionTokens: completion, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, channelId: channel._id, upstreamModel, latencyMs: Date.now() - started, inputPricePer1kMicros: price.inputPricePer1kMicros, outputPricePer1kMicros: price.outputPricePer1kMicros, cacheReadPricePer1kMicros: cachePrices.cacheRead, cacheWritePricePer1kMicros: cachePrices.cacheWrite, inputCostPer1kTokensMicros: inputCost, outputCostPer1kTokensMicros: outputCost, cacheReadCostPer1kTokensMicros: cacheReadCost, cacheWriteCostPer1kTokensMicros: cacheWriteCost });
       }
       controller.close();

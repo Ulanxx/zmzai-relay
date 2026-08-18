@@ -10,6 +10,13 @@ const channelConfigFields = {
   outputCostPer1kTokensMicros: z.number().int().min(0).nullable(),
   cacheReadCostPer1kTokensMicros: z.number().int().min(0).nullable().default(null),
   cacheWriteCostPer1kTokensMicros: z.number().int().min(0).nullable().default(null),
+  // 模型级成本覆盖：同一渠道内不同模型单价不同时用（如 deepseek 的 flash/pro）
+  modelCosts: z.record(z.object({
+    inputCostPer1kTokensMicros: z.number().int().min(0),
+    outputCostPer1kTokensMicros: z.number().int().min(0),
+    cacheReadCostPer1kTokensMicros: z.number().int().min(0).optional(),
+    cacheWriteCostPer1kTokensMicros: z.number().int().min(0).optional(),
+  })).default({}),
   enabled: z.boolean(),
   timeoutMs: z.number().int().min(1000).max(300000),
 };
