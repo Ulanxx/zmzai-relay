@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Button, Terminal } from "@zmzai/theme";
 import { ModelTable } from "@/components/model-table";
 import { PublicShell } from "@/components/public-shell";
@@ -18,12 +17,11 @@ const steps: Array<[string, string]> = [
 
 export default async function HomePage() {
   const user = await getCurrentUser();
-  if (user) redirect(user.role === "admin" ? "/admin" : "/dashboard");
   await connectMongo();
   const channels = await getPublicChannels();
   const totalModels = channels.reduce((sum, ch) => sum + ch.models.length, 0);
   return (
-    <PublicShell>
+    <PublicShell user={user ? { name: user.name } : null} isAdminUser={user?.role === "admin"}>
       <section className="max-w-2xl">
         <p className="font-mono text-xs tracking-wide text-muted">{totalModels} 个模型 · {channels.length} 条上游渠道 · OpenAI 兼容</p>
         <h1 className="mt-4 text-4xl font-semibold leading-tight tracking-tight">一个入口，调用所有上游模型</h1>
@@ -31,9 +29,15 @@ export default async function HomePage() {
           Relay 提供 OpenAI 兼容的统一 API：按模型自动路由到上游渠道，价格公开、按 token 计费、缓存命中享折扣。
         </p>
         <div className="mt-7 flex flex-wrap items-center gap-4">
-          <Link href={`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/dashboard")}`}>
-            <Button>登录开始使用</Button>
-          </Link>
+          {user ? (
+            <Link href={user.role === "admin" ? "/admin" : "/dashboard"}>
+              <Button>进入控制台</Button>
+            </Link>
+          ) : (
+            <Link href={`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/dashboard")}`}>
+              <Button>登录开始使用</Button>
+            </Link>
+          )}
           <Link href="/models" className="text-sm text-accent-readable underline underline-offset-4">查看模型与价格</Link>
         </div>
       </section>
