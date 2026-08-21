@@ -1,14 +1,19 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+
 import { Badge } from "@zmzai/theme";
 import { RelayShell } from "@/components/relay-shell";
+import { Pagination } from "@/components/pagination";
 import { getCurrentUser } from "@/providers/auth/session";
 import { connectMongo } from "@/providers/database/mongodb/connection";
-import { BalanceLedgerModel } from "@/providers/database/mongodb/models/balance";
 import { UsageModel } from "@/providers/database/mongodb/models/usage";
 import { cnyMicrosLabel } from "@/providers/billing/currency";
 
 const AUTH_URL = process.env.NEXT_PUBLIC_AUTH_URL ?? "https://auth.zmzai.cloud";
+const PAGE_SIZE = 20;
 const money = (value: number) => cnyMicrosLabel(value);
+export const dynamic = "force-dynamic";
+
 const statusVariant = (status: string): "success" | "danger" | "warning" | "outline" => {
   if (status === "completed") return "success";
   if (status === "failed") return "danger";
@@ -21,86 +26,62 @@ const statusLabel = (status: string): string => {
   if (status === "unsettled") return "待结算";
   return status;
 };
-const kindLabel: Record<string, string> = {
-  welcome_credit: "新人体验额度",
-  purchase_credit: "充值到账",
-  admin_credit: "管理员加款",
-  admin_debit: "管理员扣减",
-  usage_charge: "调用扣费",
-  refund: "退款",
-};
-export const dynamic = "force-dynamic";
 
-export default async function ActivityPage() {
+export default async function ActivityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const sp = await searchParams;
   const user = await getCurrentUser();
   if (!user) redirect(`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/dashboard/activity")}`);
   await connectMongo();
-  const [usages, ledger] = await Promise.all([UsageModel.find({ userId: user.id }).sort({ createdAt: -1 }).limit(50).lean(), BalanceLedgerModel.find({ userId: user.id }).sort({ createdAt: -1 }).limit(50).lean()]);
+  const page = Math.max(1, Number(sp.page) || 1);
+  const skip = (page - 1) * PAGE_SIZE;
+  const [total, usages] = await Promise.all([
+    UsageModel.countDocuments({ userId: user.id }),
+    UsageModel.find({ userId: user.id }).sort({ createdAt: -1 }).skip(skip).limit(PAGE_SIZE).lean(),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   return (
     <RelayShell role="user" userName={user.name} isAdminUser={user.role === "admin"}>
-      <h1 className="text-2xl font-semibold tracking-tight">用量与账单</h1>
-      <p className="mt-2 text-sm text-ink-2">最近 50 笔调用记录与余额变动。</p>
-      <div className="mt-6 grid gap-8 xl:grid-cols-2 xl:items-start">
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">调用记录</h2>
-          {usages.length ? (
-            <div className="overflow-x-auto rounded-lg border border-line">
-              <table className="w-full min-w-[26rem] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
-                    <th className="px-4 py-2.5 font-normal">模型</th>
-                    <th className="px-4 py-2.5 font-normal">状态</th>
-                    <th className="px-4 py-2.5 text-right font-normal">Tokens</th>
-                    <th className="px-4 py-2.5 text-right font-normal">费用</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {usages.map((usage) => (
-                    <tr key={String(usage._id)} className="align-top">
-                      <td className="px-4 py-3">
-                        <p className="font-mono text-xs">{usage.model}</p>
-                        <p className="mt-0.5 font-mono text-[11px] text-muted">{new Date(usage.createdAt).toLocaleString("zh-CN")}</p>
-                        {usage.lastError ? <p className="mt-0.5 text-[11px] text-danger">{usage.lastError}</p> : null}
-                      </td>
-                      <td className="px-4 py-3"><Badge variant={statusVariant(usage.status)} size="sm">{statusLabel(usage.status)}</Badge></td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-muted">{usage.totalTokens.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{money(usage.chargedMicros)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">暂无调用记录。</p>
-          )}
-        </div>
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">余额账单</h2>
-          {ledger.length ? (
-            <div className="overflow-x-auto rounded-lg border border-line">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
-                    <th className="px-4 py-2.5 font-normal">类型</th>
-                    <th className="px-4 py-2.5 font-normal">时间</th>
-                    <th className="px-4 py-2.5 text-right font-normal">金额</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {ledger.map((item) => (
-                    <tr key={String(item._id)}>
-                      <td className="px-4 py-3 text-xs">{kindLabel[item.kind] ?? item.kind}</td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-muted">{new Date(item.createdAt).toLocaleString("zh-CN")}</td>
-                      <td className={`px-4 py-3 text-right font-mono text-xs ${item.amountMicros >= 0 ? "" : "text-danger"}`}>{money(item.amountMicros)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">暂无账单记录。</p>
-          )}
-        </div>
+      <h1 className="text-2xl font-semibold tracking-tight">用量</h1>
+      <p className="mt-2 text-sm text-ink-2">调用记录与费用，按时间倒序分页展示。</p>
+      <div className="mt-6">
+        {usages.length ? (
+          <div className="space-y-3">
+            {usages.map((u) => (
+              <div
+                key={String(u._id)}
+                className="flex items-center justify-between gap-4 rounded-xl border border-line bg-bg p-4 transition-all duration-200 hover:border-line-strong hover:shadow-md"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className="truncate font-mono text-sm text-ink">{u.model}</span>
+                    <Badge variant={statusVariant(u.status)} size="sm">{statusLabel(u.status)}</Badge>
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted">{new Date(u.createdAt).toLocaleString("zh-CN")}</p>
+                  {u.lastError ? <p className="mt-1 text-[11px] text-danger">{u.lastError}</p> : null}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-sm font-medium text-ink">{money(u.chargedMicros)}</p>
+                  <p className="mt-0.5 font-mono text-xs text-muted">{u.totalTokens.toLocaleString()} tokens</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center">
+            <p className="text-sm text-muted">
+              还没有调用记录。创建{" "}
+              <Link href="/dashboard/keys" className="text-accent-readable underline underline-offset-4">
+                API Key
+              </Link>{" "}
+              后即可开始调用。
+            </p>
+          </div>
+        )}
+        <Pagination page={page} totalPages={totalPages} basePath="/dashboard/activity" />
       </div>
     </RelayShell>
   );
