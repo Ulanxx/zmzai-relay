@@ -27,6 +27,17 @@ const statusLabel = (status: string): string => {
   return status;
 };
 
+function formatRelative(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const diffMs = Date.now() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "刚刚";
+  if (diffMins < 60) return `${diffMins} 分钟前`;
+  if (diffMins < 1440) return `${Math.floor(diffMins / 60)} 小时前`;
+  if (diffMins < 43200) return `${Math.floor(diffMins / 1440)} 天前`;
+  return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+}
+
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect(`${AUTH_URL}/login?next=${encodeURIComponent("https://m.zmzai.cloud/dashboard")}`);
@@ -47,18 +58,23 @@ export default async function DashboardPage() {
       <p className="mt-2 text-sm text-ink-2">余额、消费与最近调用。</p>
 
       {availableMicros === 0 ? (
-        <p className="mt-5 rounded-md border border-warning/50 bg-warning/10 px-4 py-3 text-sm">
-          当前账户余额已用尽。
-          <Link href="/dashboard/billing" className="ml-1 text-accent-readable underline underline-offset-4">去充值</Link>
-        </p>
+        <div className="mt-5 flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4">
+          <svg className="mt-0.5 h-5 w-5 shrink-0 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+          </svg>
+          <p className="text-sm text-ink-2">
+            当前账户余额已用尽。
+            <Link href="/dashboard/billing" className="ml-1 font-medium text-accent-readable underline underline-offset-4">去充值</Link>
+          </p>
+        </div>
       ) : null}
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map(([label, value, hint]) => (
-          <div key={label} className="rounded-lg border border-line bg-bg p-5">
-            <p className="font-mono text-xs text-muted">{label}</p>
-            <p className="mt-2 font-mono text-2xl font-medium">{value}</p>
-            <p className="mt-1 text-xs text-muted">{hint}</p>
+          <div key={label} className="rounded-xl border border-line bg-bg p-5 transition-colors hover:border-line-strong hover:shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted">{label}</p>
+            <p className="mt-3 font-mono text-3xl font-semibold tracking-tight text-ink">{value}</p>
+            <p className="mt-2 text-xs text-muted">{hint}</p>
           </div>
         ))}
       </div>
@@ -69,32 +85,32 @@ export default async function DashboardPage() {
           <Link href="/dashboard/activity" className="font-mono text-xs text-muted hover:text-accent-readable">全部记录 →</Link>
         </div>
         {usage.length ? (
-          <div className="overflow-x-auto rounded-lg border border-line">
-            <table className="w-full min-w-[32rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-line bg-surface text-left font-mono text-xs text-muted">
-                  <th className="px-4 py-2.5 font-normal">模型</th>
-                  <th className="px-4 py-2.5 font-normal">状态</th>
-                  <th className="px-4 py-2.5 text-right font-normal">Tokens</th>
-                  <th className="px-4 py-2.5 text-right font-normal">费用</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {usage.map((item) => (
-                  <tr key={String(item._id)}>
-                    <td className="px-4 py-3 font-mono text-xs">{item.model}</td>
-                    <td className="px-4 py-3"><Badge variant={statusVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge></td>
-                    <td className="px-4 py-3 text-right font-mono text-xs text-muted">{item.totalTokens.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{money(item.chargedMicros)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {usage.map((item) => (
+              <div
+                key={String(item._id)}
+                className="group flex items-center justify-between gap-4 rounded-xl border border-line bg-bg p-4 transition-all duration-200 hover:border-line-strong hover:shadow-md"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className="truncate font-mono text-sm text-ink">{item.model}</span>
+                    <Badge variant={statusVariant(item.status)} size="sm">{statusLabel(item.status)}</Badge>
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted">{formatRelative(item.createdAt)}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="font-mono text-sm font-medium text-ink">{money(item.chargedMicros)}</p>
+                  <p className="mt-0.5 font-mono text-xs text-muted">{item.totalTokens.toLocaleString()} tokens</p>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
-          <p className="rounded-lg border border-line px-4 py-6 text-sm text-muted">
-            还没有调用记录。创建 <Link href="/dashboard/keys" className="text-accent-readable underline underline-offset-4">API Key</Link> 后即可开始调用。
-          </p>
+          <div className="rounded-xl border border-dashed border-line px-4 py-10 text-center">
+            <p className="text-sm text-muted">
+              还没有调用记录。创建 <Link href="/dashboard/keys" className="text-accent-readable underline underline-offset-4">API Key</Link> 后即可开始调用。
+            </p>
+          </div>
         )}
       </div>
     </RelayShell>
